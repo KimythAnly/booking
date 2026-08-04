@@ -1,0 +1,687 @@
+# Teacher Scheduler v1 - Project Specification
+
+## Overview
+
+Build a free web application for a single teacher to manage student lesson bookings.
+
+### Requirements
+
+* Only teacher-registered students can use the system.
+* Students can request bookings.
+* Students can request cancellations.
+* Teacher must approve or reject booking requests.
+* Teacher must approve or reject cancellation requests.
+* Approved bookings automatically sync to Google Calendar.
+* Approved cancellations automatically remove Google Calendar events.
+* Teacher can create recurring weekly lessons.
+* Entire solution should be free to host and maintain.
+
+---
+
+# Architecture
+
+## Frontend
+
+* React
+* Vite
+* TypeScript
+* Material UI (MUI)
+* FullCalendar
+
+Deployment:
+
+* GitHub Pages
+
+---
+
+## Backend
+
+* Google Apps Script (Web App)
+
+Responsibilities:
+
+* Authentication validation
+* Google Sheets data access
+* Google Calendar integration
+* Business logic
+
+---
+
+## Storage
+
+### Google Sheets
+
+Acts as the database.
+
+Required sheets:
+
+* Students
+* BookingRequests
+* Bookings
+* RecurringClasses
+* Availability
+
+---
+
+## Calendar
+
+Google Calendar
+
+Used for:
+
+* Creating lesson events
+* Deleting cancelled lesson events
+* Viewing schedule consistency
+
+---
+
+# Authentication
+
+## Login Method
+
+Use Google Sign-In.
+
+Frontend obtains Google account email.
+
+Frontend calls Apps Script:
+
+```json
+{
+  "action": "validateUser",
+  "email": "student@example.com"
+}
+```
+
+Apps Script determines:
+
+* Teacher
+* Student
+* Unauthorized
+
+Response:
+
+```json
+{
+  "role": "teacher"
+}
+```
+
+or
+
+```json
+{
+  "role": "student"
+}
+```
+
+or
+
+```json
+{
+  "role": "unauthorized"
+}
+```
+
+---
+
+# User Roles
+
+## Teacher
+
+Teacher emails stored in configuration:
+
+```javascript
+const TEACHER_EMAILS = [
+  "teacher@gmail.com"
+];
+```
+
+Teacher can:
+
+* Add students
+* Disable students
+* Create available slots
+* Block slots
+* Approve bookings
+* Reject bookings
+* Approve cancellations
+* Reject cancellations
+* Create recurring classes
+* View all bookings
+
+---
+
+## Student
+
+Student can:
+
+* Login
+* View available slots
+* Request booking
+* Request cancellation
+* View upcoming lessons
+
+---
+
+# Google Sheets Schema
+
+## Students
+
+| Column     |
+| ---------- |
+| student_id |
+| name       |
+| email      |
+| active     |
+| created_at |
+
+Example:
+
+| student_id | name  | email                                     | active |
+| ---------- | ----- | ----------------------------------------- | ------ |
+| 1          | Alice | [alice@gmail.com](mailto:alice@gmail.com) | TRUE   |
+
+---
+
+## BookingRequests
+
+| Column        |
+| ------------- |
+| request_id    |
+| student_id    |
+| student_email |
+| type          |
+| start_time    |
+| end_time      |
+| status        |
+| created_at    |
+
+### type
+
+* BOOK
+* CANCEL
+
+### status
+
+* PENDING
+* APPROVED
+* REJECTED
+
+---
+
+## Bookings
+
+| Column            |
+| ----------------- |
+| booking_id        |
+| student_id        |
+| student_email     |
+| start_time        |
+| end_time          |
+| status            |
+| calendar_event_id |
+
+### status
+
+* ACTIVE
+* CANCELLED
+
+---
+
+## RecurringClasses
+
+| Column     |
+| ---------- |
+| id         |
+| student_id |
+| weekday    |
+| start_time |
+| end_time   |
+| start_date |
+| end_date   |
+| active     |
+
+Example:
+
+| student_id | weekday | start_time | end_time |
+| ---------- | ------- | ---------- | -------- |
+| Alice      | Friday  | 13:00      | 14:00    |
+
+---
+
+## Availability
+
+| Column     |
+| ---------- |
+| slot_id    |
+| start_time |
+| end_time   |
+| status     |
+
+### status
+
+* AVAILABLE
+* BLOCKED
+* BOOKED
+
+---
+
+# Frontend Pages
+
+## Login Page
+
+Route:
+
+```text
+/
+```
+
+Features:
+
+* Google Sign-In
+* Role detection
+* Redirect to proper dashboard
+
+Redirects:
+
+```text
+teacher -> /admin
+student -> /student
+unauthorized -> access denied page
+```
+
+---
+
+## Student Dashboard
+
+Route:
+
+```text
+/student
+```
+
+Sections:
+
+### Upcoming Lessons
+
+Display:
+
+* Date
+* Time
+* Status
+
+---
+
+### Available Slots
+
+Display:
+
+* Date
+* Time
+* Request Booking button
+
+---
+
+### My Requests
+
+Display:
+
+* Pending booking requests
+* Pending cancellation requests
+
+---
+
+## Admin Dashboard
+
+Route:
+
+```text
+/admin
+```
+
+Sections:
+
+### Pending Requests
+
+Display:
+
+* Student
+* Request type
+* Date
+* Time
+
+Actions:
+
+* Approve
+* Reject
+
+---
+
+### Student Management
+
+Features:
+
+* Add student
+* Disable student
+* List students
+
+---
+
+### Availability Management
+
+Features:
+
+* Create available slots
+* Block slots
+* Delete slots
+
+---
+
+### Recurring Class Management
+
+Features:
+
+* Create weekly recurring classes
+* Edit recurring classes
+* Disable recurring classes
+
+---
+
+### Calendar View
+
+Display:
+
+* Active bookings
+* Blocked slots
+* Recurring lessons
+
+Use FullCalendar.
+
+---
+
+# Apps Script API
+
+All requests use:
+
+```text
+POST /exec
+```
+
+with:
+
+```json
+{
+  "action": "..."
+}
+```
+
+---
+
+## Authentication
+
+### validateUser
+
+Input:
+
+```json
+{
+  "email": "alice@gmail.com"
+}
+```
+
+Output:
+
+```json
+{
+  "role": "student"
+}
+```
+
+---
+
+## Student APIs
+
+### getAvailableSlots
+
+Returns available booking slots.
+
+---
+
+### getMyBookings
+
+Returns student's bookings.
+
+---
+
+### requestBooking
+
+Input:
+
+```json
+{
+  "slotId": "123",
+  "studentEmail": "alice@gmail.com"
+}
+```
+
+Creates BookingRequest with status=PENDING.
+
+---
+
+### requestCancellation
+
+Input:
+
+```json
+{
+  "bookingId": "456"
+}
+```
+
+Creates cancellation request.
+
+---
+
+## Teacher APIs
+
+### getPendingRequests
+
+Returns all pending requests.
+
+---
+
+### approveRequest
+
+Approves booking or cancellation request.
+
+---
+
+### rejectRequest
+
+Rejects request.
+
+---
+
+### addStudent
+
+Creates a new student record.
+
+---
+
+### disableStudent
+
+Disables student access.
+
+---
+
+### createAvailability
+
+Creates available booking slots.
+
+---
+
+### createRecurringClass
+
+Creates recurring weekly lessons.
+
+---
+
+# Google Calendar Integration
+
+## Booking Approval
+
+When a booking request is approved:
+
+1. Create Google Calendar event.
+2. Save event ID in Bookings sheet.
+3. Update booking status.
+
+Event title format:
+
+```text
+Lesson - Student Name
+```
+
+---
+
+## Cancellation Approval
+
+When a cancellation request is approved:
+
+1. Find calendar_event_id.
+2. Delete event from Google Calendar.
+3. Update booking status to CANCELLED.
+
+---
+
+# Recurring Classes
+
+Teacher can create:
+
+* Student
+* Weekday
+* Start Time
+* End Time
+* Start Date
+* End Date
+
+Example:
+
+```text
+Student: Alice
+Weekday: Friday
+Time: 13:00-14:00
+Start: 2026-09-01
+End: 2026-12-31
+```
+
+System automatically generates lesson records and calendar events.
+
+---
+
+# Security Rules
+
+* Only teacher email(s) may access admin routes.
+* Only active students may access student routes.
+* Frontend checks authorization.
+* Apps Script must also validate authorization on every API request.
+* Never trust frontend-only validation.
+
+---
+
+# Deployment
+
+Frontend:
+
+* GitHub repository
+* GitHub Actions build
+* GitHub Pages deployment
+
+Backend:
+
+* Google Apps Script deployed as Web App
+
+Configuration:
+
+```env
+VITE_GOOGLE_CLIENT_ID=
+VITE_APPS_SCRIPT_URL=
+```
+
+---
+
+# Development Order
+
+## Phase 1
+
+Authentication
+
+* Google Sign-In
+* Role validation
+
+## Phase 2
+
+Student management
+
+* Students sheet
+* Admin student page
+
+## Phase 3
+
+Availability management
+
+* Create slots
+* Block slots
+
+## Phase 4
+
+Booking workflow
+
+* Request booking
+* Request cancellation
+
+## Phase 5
+
+Approval workflow
+
+* Approve
+* Reject
+
+## Phase 6
+
+Google Calendar integration
+
+* Create events
+* Delete events
+
+## Phase 7
+
+Recurring classes
+
+* Weekly lessons
+* Batch generation
+
+## Phase 8
+
+UI improvements
+
+* Calendar views
+* Better UX
+* Error handling
+
+---
+
+# Definition of Done
+
+The project is complete when:
+
+1. Teacher can add a student.
+2. Student can login using Google account.
+3. Student can request a booking.
+4. Teacher can approve the booking.
+5. Booking appears in Google Calendar.
+6. Student can request cancellation.
+7. Teacher can approve cancellation.
+8. Calendar event is removed.
+9. Teacher can create recurring weekly lessons.
+10. System is deployed on GitHub Pages and fully functional without a dedicated backend server.

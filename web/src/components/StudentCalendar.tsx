@@ -1,0 +1,222 @@
+import { useState } from 'react';
+import FullCalendar from '@fullcalendar/react';
+import dayGridPlugin from '@fullcalendar/daygrid';
+import timeGridPlugin from '@fullcalendar/timegrid';
+import interactionPlugin from '@fullcalendar/interaction';
+import type { EventClickArg, EventInput } from '@fullcalendar/core';
+import {
+  Box,
+  Button,
+  Chip,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Stack,
+  Typography,
+} from '@mui/material';
+import { api } from '../api';
+import { useAuth } from '../auth';
+import type { Booking, BookingRequest, Slot } from '../types';
+import { formatDateTime } from '../utils';
+
+interface Props {
+  slots: Slot[];
+  bookings: Booking[];
+  requests: BookingRequest[];
+  onDone: (msg: string) => void;
+  onError: (msg: string) => void;
+}
+
+export default function StudentCalendar({ slots, bookings, requests, onDone, onError }: Props) {
+  const { email } = useAuth();
+  const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null);
+  const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
+  const [selectedRequest, setSelectedRequest] = useState<BookingRequest | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const pendingCancelTimes = new Set(
+    requests.filter((r) => r.type === 'CANCEL' && r.status === 'PENDING').map((r) => r.start_time),
+  );
+
+  const events: EventInput[] = [
+    ...slots.map((s) => ({
+      id: 'av_' + s.slot_id,
+      title: 'Available',
+      start: s.start_time,
+      end: s.end_time,
+      backgroundColor: '#22c55e',
+      borderColor: '#22c55e',
+      textColor: '#ffffff',
+      extendedProps: { kind: 'available' as const },
+    })),
+    ...bookings
+      .filter((b) => b.status === 'ACTIVE' && !pendingCancelTimes.has(b.start_time))
+      .map((b) => ({
+        id: 'bk_' + b.booking_id,
+        title: 'My lesson',
+        start: b.start_time,
+        end: b.end_time,
+        backgroundColor: '#4f46e5',
+        borderColor: '#4f46e5',
+        textColor: '#ffffff',
+        extendedProps: { kind: 'booking' as const },
+      })),
+    ...requests
+      .filter((r) => r.status === 'PENDING')
+      .map((r) => ({
+        id: 'req_' + r.request_id,
+        title: r.type === 'BOOK' ? 'Booking request' : 'Cancellation request',
+        start: r.start_time,
+        end: r.end_time,
+        backgroundColor: r.type === 'BOOK' ? '#f59e0b' : '#e11d48',
+        borderColor: r.type === 'BOOK' ? '#f59e0b' : '#e11d48',
+        textColor: '#ffffff',
+        extendedProps: { kind: 'request' as const },
+      })),
+  ];
+
+  function handleEventClick(info: EventClickArg) {
+    const kind = (info.event.extendedProps as { kind?: string }).kind;
+    if (kind === 'available') {
+      setSelectedSlot(slots.find((s) => 'av_' + s.slot_id === info.event.id) ?? null);
+    } else if (kind === 'booking') {
+      setSelectedBooking(bookings.find((b) => 'bk_' + b.booking_id === info.event.id) ?? null);
+    } else {
+      setSelectedRequest(requests.find((r) => 'req_' + r.request_id === info.event.id) ?? null);
+    }
+  }
+
+  async function confirmBooking() {
+    if (!selectedSlot) return;
+    setBusy(true);
+    try {
+      await api.requestBooking(email, selectedSlot.slot_id);
+      onDone(`Booking requested for ${formatDateTime(selectedSlot.start_time)}. Waiting for approval.`);
+      setSelectedSlot(null);
+    } catch (err) {
+      onError((err as Error).message);
+      setSelectedSlot(null);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmCancellation() {
+    if (!selectedBooking) return;
+    setBusy(true);
+    try {
+      await api.requestCancellation(email, selectedBooking.booking_id);
+      onDone(`Cancellation requested for ${formatDateTime(selectedBooking.start_time)}. Waiting for approval.`);
+      setSelectedBooking(null);
+    } catch (err) {
+      onError((err as Error).message);
+      setSelectedBooking(null);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Box>
+      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
+        <Chip size="small" label="Available to book" sx={{ bgcolor: '#22c55e', color: '#fff' }} />
+        <Chip size="small" label="My lesson" sx={{ bgcolor: '#4f46e5', color: '#fff' }} />
+        <Chip size="small" label="Pending request" sx={{ bgcolor: '#f59e0b', color: '#fff' }} />
+        <Chip size="small" label="Cancellation request" sx={{ bgcolor: '#e11d48', color: '#fff' }} />
+      </Stack>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+        Tip: click a green slot to request a booking, or click one of your lessons to request a cancellation.
+      </Typography>
+      <Box sx={{ bgcolor: 'background.paper', borderRadius: 2, boxShadow: 1, p: 1 }}>
+        <FullCalendar
+          plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
+          initialView="timeGridWeek"
+          headerToolbar={{
+            left: 'prev,next today',
+            center: 'title',
+            right: 'dayGridMonth,timeGridWeek,timeGridDay',
+          }}
+          events={events}
+          height="auto"
+          allDaySlot={false}
+          slotMinTime="07:00:00"
+          slotMaxTime="22:00:00"
+          nowIndicator
+          eventClick={handleEventClick}
+          eventTimeFormat={{ hour: 'numeric', minute: '2-digit', hour12: true }}
+        />
+      </Box>
+
+      {/* Book slot dialog */}
+      <Dialog open={!!selectedSlot} onClose={() => setSelectedSlot(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>Request booking</DialogTitle>
+        <DialogContent>
+          <Typography>Book this open slot?</Typography>
+          {selectedSlot && (
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              {formatDateTime(selectedSlot.start_time)} – {formatDateTime(selectedSlot.end_time)}
+            </Typography>
+          )}
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+            The teacher must approve your request before the lesson is confirmed.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSelectedSlot(null)}>Cancel</Button>
+          <Button variant="contained" onClick={confirmBooking} disabled={busy}>
+            Send request
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Cancel lesson dialog */}
+      <Dialog open={!!selectedBooking} onClose={() => setSelectedBooking(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>Request cancellation</DialogTitle>
+        <DialogContent>
+          <Typography>Request to cancel this lesson?</Typography>
+          {selectedBooking && (
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              {formatDateTime(selectedBooking.start_time)} – {formatDateTime(selectedBooking.end_time)}
+            </Typography>
+          )}
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+            The teacher must approve your request before the lesson is removed.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSelectedBooking(null)}>Cancel</Button>
+          <Button variant="contained" color="error" onClick={confirmCancellation} disabled={busy}>
+            Send request
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Request info dialog */}
+      <Dialog open={!!selectedRequest} onClose={() => setSelectedRequest(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>Request status</DialogTitle>
+        <DialogContent>
+          {selectedRequest && (
+            <>
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+                <Typography>
+                  {selectedRequest.type === 'BOOK' ? 'Booking request' : 'Cancellation request'}
+                </Typography>
+                <Chip size="small" color="warning" label="Pending approval" />
+              </Stack>
+              <Typography variant="body2" color="text.secondary">
+                {formatDateTime(selectedRequest.start_time)} – {formatDateTime(selectedRequest.end_time)}
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                You'll see the result here once the teacher reviews it.
+              </Typography>
+            </>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSelectedRequest(null)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+    </Box>
+  );
+}

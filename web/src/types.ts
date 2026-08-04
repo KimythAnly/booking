@@ -1,0 +1,73 @@
+export type Role = 'teacher' | 'student' | 'unauthorized';
+
+export interface Student {
+  student_id: string;
+  name: string;
+  email: string;
+  active: string | boolean;
+  created_at?: string;
+}
+
+export type SlotStatus = 'AVAILABLE' | 'BLOCKED' | 'BOOKED';
+
+export interface Slot {
+  slot_id: string;
+  start_time: string;
+  end_time: string;
+  status: SlotStatus;
+  student_name?: string;
+}
+
+export type BookingStatus = 'ACTIVE' | 'CANCELLED';
+
+export interface Booking {
+  booking_id: string;
+  student_id: string;
+  student_email: string;
+  student_name: string;
+  start_time: string;
+  end_time: string;
+  status: BookingStatus;
+  calendar_event_id?: string;
+  recurring_id?: string;
+  created_at?: string;
+}
+
+export type RequestType = 'BOOK' | 'CANCEL';
+export type RequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+
+export interface BookingRequest {
+  request_id: string;
+  student_id: string;
+  student_email: string;
+  student_name: string;
+  type: RequestType;
+  slot_id?: string;
+  booking_id?: string;
+  start_time: string;
+  end_time: string;
+  status: RequestStatus;
+  created_at?: string;
+}
+
+export interface RecurringClass {
+  id: string;
+  student_id: string;
+  student_email: string;
+  student_name: string;
+  weekday: string;
+  start_time: string;
+  end_time: string;
+  start_date: string;
+  end_date: string;
+  active: string | boolean;
+}
+
+export interface AdminData {
+  students: Student[];
+  availability: Slot[];
+  pendingRequests: BookingRequest[];
+  requests: BookingRequest[];
+  bookings: Booking[];
+  recurring: RecurringClass[];
+}
