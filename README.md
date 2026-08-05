@@ -35,19 +35,24 @@ booking/
 
 1. Create a **Google Spreadsheet** (this will be the database).
 2. In the spreadsheet, open **Extensions → Apps Script**.
-3. Delete the default `Code.gs` content. Copy the contents of
-   [`apps-script/Code.gs`](apps-script/Code.gs) into `Code.gs`.
-4. Add `apps-script/appsscript.json` as a manifest (Settings → Show "appsscript.json" manifest file).
-5. Edit the `CONFIG` at the top of `Code.gs`:
+3. In the editor's file list, add/create three files and paste their contents:
+   - `Code.gs` ← [`apps-script/Code.gs`](apps-script/Code.gs)
+   - `Config.gs` ← [`apps-script/Config.gs`](apps-script/Config.gs) *(your settings live here — never overwrite this file when updating)*
+   - `appsscript.json` ← [`apps-script/appsscript.json`](apps-script/appsscript.json) (Settings → Show "appsscript.json" manifest file)
+4. Edit `Config.gs`:
    - `TEACHER_EMAILS`: your Google account email(s).
    - `SPREADSHEET_ID` *(optional)*: leave empty since the script is bound to the spreadsheet.
    - `CALENDAR_ID` *(optional)*: leave empty to use your default calendar.
    - `TIME_ZONE`: your time zone (default `Asia/Taipei`).
-6. Authorize the required scopes (Sheets, Calendar, userinfo.email) when prompted.
-7. **Deploy → New deployment → Web app**:
+5. Authorize the required scopes (Sheets, Calendar, userinfo.email) when prompted.
+6. **Deploy → New deployment → Web app**:
    - **Execute as:** Me
    - **Who has access:** Anyone with a Google account
    - Copy the **Web app URL** (`https://script.google.com/macros/s/.../exec`).
+
+> Updating later: when a new backend version ships, **replace only `Code.gs`** — leave `Config.gs`
+> and `appsscript.json` as-is so your emails/calendar/timezone settings are preserved. Then
+> Deploy → Manage deployments → Edit → New version → Deploy.
 
 The Sheets (`Students`, `BookingRequests`, `Bookings`, `RecurringClasses`, `Availability`)
 are created automatically on first use.

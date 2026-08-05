@@ -7,20 +7,17 @@
  *
  * SETUP:
  *   1. Create a Google Spreadsheet.
- *   2. Edit CONFIG below (teacher emails). Optionally set SPREADSHEET_ID / CALENDAR_ID.
- *   3. In the spreadsheet: Extensions -> Apps Script, paste this file + appsscript.json.
+ *   2. Edit Config.gs (teacher emails). Optionally set SPREADSHEET_ID / CALENDAR_ID.
+ *   3. In the spreadsheet: Extensions -> Apps Script, paste this file, Config.gs
+ *      and appsscript.json.
  *   4. Deploy -> New deployment -> Web app.
  *      - Execute as: Me
  *      - Who has access: Anyone with a Google account
  *   5. Copy the web app URL into the frontend .env as VITE_APPS_SCRIPT_URL.
+ *
+ * CONFIG (teacher emails, timezone, calendar) lives in Config.gs — when updating
+ * this backend, replace only Code.gs and keep Config.gs untouched.
  */
-
-var CONFIG = {
-  TEACHER_EMAILS: ['YOUR-TEACHER-EMAIL@gmail.com'], // REPLACE with the teacher's email(s)
-  SPREADSHEET_ID: '', // optional: leave '' if the script is bound to the spreadsheet
-  CALENDAR_ID: '',    // optional: leave '' to use the teacher's default calendar
-  TIME_ZONE: 'Asia/Taipei',
-};
 
 var SHEET_NAMES = {
   students: 'Students',
