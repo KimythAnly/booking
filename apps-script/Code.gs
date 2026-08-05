@@ -211,7 +211,12 @@ function readAll_(name) {
   for (var i = 1; i < values.length; i++) {
     var row = {};
     for (var j = 0; j < headers.length; j++) {
-      row[headers[j]] = values[i][j];
+      var cell = values[i][j];
+      // Sheets stores ISO datetime strings as real dates; return them as wall-clock
+      // strings so the rest of the code (and the frontend) sees consistent values.
+      row[headers[j]] = cell instanceof Date
+        ? Utilities.formatDate(cell, CONFIG.TIME_ZONE, "yyyy-MM-dd'T'HH:mm:ss")
+        : cell;
     }
     rows.push(row);
   }
@@ -336,55 +341,59 @@ function getStudentRequests_(email) {
 }
 
 function requestBooking_(email, slotId) {
-  var slot = findById_(SHEET_NAMES.availability, 'slot_id', slotId);
-  if (!slot) throw new Error('Slot not found');
-  if (String(slot.status).toUpperCase() !== 'AVAILABLE') throw new Error('This slot is no longer available');
-  var student = getStudentByEmail_(email);
-  if (!student || !isTrue_(student.active)) throw new Error('Student account is not active');
+  return runLocked_(function () {
+    var slot = findById_(SHEET_NAMES.availability, 'slot_id', slotId);
+    if (!slot) throw new Error('Slot not found');
+    if (String(slot.status).toUpperCase() !== 'AVAILABLE') throw new Error('This slot is no longer available');
+    var student = getStudentByEmail_(email);
+    if (!student || !isTrue_(student.active)) throw new Error('Student account is not active');
 
-  var dup = readAll_(SHEET_NAMES.requests).find(function (r) {
-    return String(r.slot_id) === String(slotId) && r.status === 'PENDING';
-  });
-  if (dup) throw new Error('A request for this slot is already pending');
+    var dup = readAll_(SHEET_NAMES.requests).find(function (r) {
+      return String(r.slot_id) === String(slotId) && r.status === 'PENDING';
+    });
+    if (dup) throw new Error('A request for this slot is already pending');
 
-  appendRow_(SHEET_NAMES.requests, {
-    request_id: genId_('req'),
-    student_id: student.student_id,
-    student_email: student.email,
-    student_name: student.name,
-    type: 'BOOK',
-    slot_id: slot.slot_id,
-    booking_id: '',
-    start_time: slot.start_time,
-    end_time: slot.end_time,
-    status: 'PENDING',
-    created_at: nowIso_(),
+    appendRow_(SHEET_NAMES.requests, {
+      request_id: genId_('req'),
+      student_id: student.student_id,
+      student_email: student.email,
+      student_name: student.name,
+      type: 'BOOK',
+      slot_id: slot.slot_id,
+      booking_id: '',
+      start_time: slot.start_time,
+      end_time: slot.end_time,
+      status: 'PENDING',
+      created_at: nowIso_(),
+    });
   });
 }
 
 function requestCancellation_(email, bookingId) {
-  var booking = findById_(SHEET_NAMES.bookings, 'booking_id', bookingId);
-  if (!booking) throw new Error('Booking not found');
-  if (String(booking.student_email).toLowerCase() !== email) throw new Error('You can only cancel your own bookings');
-  if (booking.status !== 'ACTIVE') throw new Error('This booking is not active');
+  return runLocked_(function () {
+    var booking = findById_(SHEET_NAMES.bookings, 'booking_id', bookingId);
+    if (!booking) throw new Error('Booking not found');
+    if (String(booking.student_email).toLowerCase() !== email) throw new Error('You can only cancel your own bookings');
+    if (booking.status !== 'ACTIVE') throw new Error('This booking is not active');
 
-  var dup = readAll_(SHEET_NAMES.requests).find(function (r) {
-    return String(r.booking_id) === String(bookingId) && r.status === 'PENDING';
-  });
-  if (dup) throw new Error('A cancellation request is already pending');
+    var dup = readAll_(SHEET_NAMES.requests).find(function (r) {
+      return String(r.booking_id) === String(bookingId) && r.status === 'PENDING';
+    });
+    if (dup) throw new Error('A cancellation request is already pending');
 
-  appendRow_(SHEET_NAMES.requests, {
-    request_id: genId_('req'),
-    student_id: booking.student_id,
-    student_email: booking.student_email,
-    student_name: booking.student_name,
-    type: 'CANCEL',
-    slot_id: '',
-    booking_id: booking.booking_id,
-    start_time: booking.start_time,
-    end_time: booking.end_time,
-    status: 'PENDING',
-    created_at: nowIso_(),
+    appendRow_(SHEET_NAMES.requests, {
+      request_id: genId_('req'),
+      student_id: booking.student_id,
+      student_email: booking.student_email,
+      student_name: booking.student_name,
+      type: 'CANCEL',
+      slot_id: '',
+      booking_id: booking.booking_id,
+      start_time: booking.start_time,
+      end_time: booking.end_time,
+      status: 'PENDING',
+      created_at: nowIso_(),
+    });
   });
 }
 
@@ -399,44 +408,46 @@ function getPendingRequests_() {
 }
 
 function approveRequest_(requestId) {
-  var req = findById_(SHEET_NAMES.requests, 'request_id', requestId);
-  if (!req) throw new Error('Request not found');
-  if (req.status !== 'PENDING') throw new Error('Request has already been processed');
+  return runLocked_(function () {
+    var req = findById_(SHEET_NAMES.requests, 'request_id', requestId);
+    if (!req) throw new Error('Request not found');
+    if (req.status !== 'PENDING') throw new Error('Request has already been processed');
 
-  if (req.type === 'BOOK') {
-    var slot = findById_(SHEET_NAMES.availability, 'slot_id', req.slot_id);
-    if (!slot || String(slot.status).toUpperCase() !== 'AVAILABLE') {
-      throw new Error('The requested slot is no longer available');
+    if (req.type === 'BOOK') {
+      var slot = findById_(SHEET_NAMES.availability, 'slot_id', req.slot_id);
+      if (!slot || String(slot.status).toUpperCase() !== 'AVAILABLE') {
+        throw new Error('The requested slot is no longer available');
+      }
+      var eventId = createCalendarEvent_(req.start_time, req.end_time, req.student_name, req.student_email);
+      appendRow_(SHEET_NAMES.bookings, {
+        booking_id: genId_('bk'),
+        student_id: req.student_id,
+        student_email: req.student_email,
+        student_name: req.student_name,
+        start_time: req.start_time,
+        end_time: req.end_time,
+        status: 'ACTIVE',
+        calendar_event_id: eventId,
+        recurring_id: '',
+        created_at: nowIso_(),
+      });
+      updateById_(SHEET_NAMES.availability, 'slot_id', slot.slot_id, { status: 'BOOKED' });
+      updateById_(SHEET_NAMES.requests, 'request_id', requestId, { status: 'APPROVED' });
+      return { message: 'Booking approved and added to calendar' };
     }
-    var eventId = createCalendarEvent_(req.start_time, req.end_time, req.student_name, req.student_email);
-    appendRow_(SHEET_NAMES.bookings, {
-      booking_id: genId_('bk'),
-      student_id: req.student_id,
-      student_email: req.student_email,
-      student_name: req.student_name,
-      start_time: req.start_time,
-      end_time: req.end_time,
-      status: 'ACTIVE',
-      calendar_event_id: eventId,
-      recurring_id: '',
-      created_at: nowIso_(),
-    });
-    updateById_(SHEET_NAMES.availability, 'slot_id', slot.slot_id, { status: 'BOOKED' });
-    updateById_(SHEET_NAMES.requests, 'request_id', requestId, { status: 'APPROVED' });
-    return { message: 'Booking approved and added to calendar' };
-  }
 
-  if (req.type === 'CANCEL') {
-    var booking = findById_(SHEET_NAMES.bookings, 'booking_id', req.booking_id);
-    if (!booking || booking.status !== 'ACTIVE') throw new Error('Booking is not active');
-    if (booking.calendar_event_id) deleteCalendarEvent_(booking.calendar_event_id);
-    updateById_(SHEET_NAMES.bookings, 'booking_id', booking.booking_id, { status: 'CANCELLED' });
-    freeSlot_(booking.start_time);
-    updateById_(SHEET_NAMES.requests, 'request_id', requestId, { status: 'APPROVED' });
-    return { message: 'Cancellation approved, calendar event removed' };
-  }
+    if (req.type === 'CANCEL') {
+      var booking = findById_(SHEET_NAMES.bookings, 'booking_id', req.booking_id);
+      if (!booking || booking.status !== 'ACTIVE') throw new Error('Booking is not active');
+      if (booking.calendar_event_id) deleteCalendarEvent_(booking.calendar_event_id);
+      updateById_(SHEET_NAMES.bookings, 'booking_id', booking.booking_id, { status: 'CANCELLED' });
+      freeSlot_(booking.start_time);
+      updateById_(SHEET_NAMES.requests, 'request_id', requestId, { status: 'APPROVED' });
+      return { message: 'Cancellation approved, calendar event removed' };
+    }
 
-  throw new Error('Unknown request type: ' + req.type);
+    throw new Error('Unknown request type: ' + req.type);
+  });
 }
 
 function addStudent_(name, studentEmail) {
@@ -688,6 +699,18 @@ function freeSlot_(startIso) {
 // ============================================================
 // Utilities
 // ============================================================
+
+// Serializes critical read-modify-write operations so two students
+// (or a student and the teacher) cannot book the same slot at once.
+function runLocked_(fn) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    return fn();
+  } finally {
+    lock.releaseLock();
+  }
+}
 
 function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
