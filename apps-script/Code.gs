@@ -31,11 +31,11 @@ var SHEET_NAMES = {
 };
 
 var SHEET_HEADERS = {
-  students: ['student_id', 'name', 'email', 'active', 'created_at'],
-  requests: ['request_id', 'student_id', 'student_email', 'student_name', 'type', 'slot_id', 'booking_id', 'start_time', 'end_time', 'status', 'created_at'],
-  bookings: ['booking_id', 'student_id', 'student_email', 'student_name', 'start_time', 'end_time', 'status', 'calendar_event_id', 'recurring_id', 'created_at'],
-  recurring: ['id', 'student_id', 'student_email', 'student_name', 'weekday', 'start_time', 'end_time', 'start_date', 'end_date', 'active'],
-  availability: ['slot_id', 'start_time', 'end_time', 'status'],
+  Students: ['student_id', 'name', 'email', 'active', 'created_at'],
+  BookingRequests: ['request_id', 'student_id', 'student_email', 'student_name', 'type', 'slot_id', 'booking_id', 'start_time', 'end_time', 'status', 'created_at'],
+  Bookings: ['booking_id', 'student_id', 'student_email', 'student_name', 'start_time', 'end_time', 'status', 'calendar_event_id', 'recurring_id', 'created_at'],
+  RecurringClasses: ['id', 'student_id', 'student_email', 'student_name', 'weekday', 'start_time', 'end_time', 'start_date', 'end_date', 'active'],
+  Availability: ['slot_id', 'start_time', 'end_time', 'status'],
 };
 
 var WEEKDAYS = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
