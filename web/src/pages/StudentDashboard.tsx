@@ -56,25 +56,11 @@ export default function StudentDashboard() {
     return () => clearInterval(t);
   }, [load]);
 
-  async function requestCancellation(booking: Booking) {
-    try {
-      await api.requestCancellation(email, booking.booking_id);
-      setInfo(`Cancellation requested for ${formatDateTime(booking.start_time)}. Waiting for approval.`);
-      setError('');
-      await load();
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  }
-
   const upcoming = bookings.filter((b) => b.status === 'ACTIVE' && isFuture(b.start_time));
   const pendingCount = requests.filter((r) => r.status === 'PENDING').length;
 
   return (
-    <Layout
-      title="Student Dashboard"
-      subtitle="Book a lesson or request a cancellation right on the calendar."
-    >
+    <Layout title="Student Dashboard" subtitle="Book a lesson right on the calendar.">
       <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
         <Typography variant="body2" color="text.secondary">
           {pendingCount > 0
@@ -118,7 +104,7 @@ export default function StudentDashboard() {
           </Box>
           <Box sx={{ width: { xs: '100%', lg: 340 }, flexShrink: 0 }}>
             <Stack spacing={2}>
-              <UpcomingLessons bookings={upcoming} onCancel={requestCancellation} />
+              <UpcomingLessons bookings={upcoming} />
               <MyRequests requests={requests} />
             </Stack>
           </Box>
@@ -128,13 +114,7 @@ export default function StudentDashboard() {
   );
 }
 
-function UpcomingLessons({
-  bookings,
-  onCancel,
-}: {
-  bookings: Booking[];
-  onCancel: (b: Booking) => void;
-}) {
+function UpcomingLessons({ bookings }: { bookings: Booking[] }) {
   if (bookings.length === 0) {
     return <Empty text="No upcoming lessons." />;
   }
@@ -146,15 +126,7 @@ function UpcomingLessons({
         </Typography>
         <List disablePadding dense>
           {bookings.map((b) => (
-            <ListItem
-              key={b.booking_id}
-              divider
-              secondaryAction={
-                <Button size="small" color="error" variant="outlined" onClick={() => onCancel(b)}>
-                  Cancel
-                </Button>
-              }
-            >
+            <ListItem key={b.booking_id} divider>
               <ListItemText
                 primary={formatDateTime(b.start_time)}
                 secondary={`${formatDateTime(b.start_time)} – ${formatDateTime(b.end_time)}`}

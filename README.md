@@ -7,9 +7,10 @@ A free, serverless lesson-booking system for a single teacher.
 - **Storage**: **Google Sheets**.
 - **Calendar**: **Google Calendar**.
 
-Workflow: teacher registers students → students sign in with Google → students request
-bookings/cancellations → teacher approves/rejects → approved bookings auto-sync to Google
-Calendar (and approved cancellations remove events) → teacher can set recurring weekly lessons.
+Workflow: teacher registers students → teacher creates open slots (or schedules a lesson directly
+for a student, single or weekly) → students sign in with Google and request bookings → teacher
+approves/rejects → approved bookings auto-sync to the teacher's Google Calendar. Only the teacher
+can cancel lessons; students request bookings only.
 
 ## Project layout
 
@@ -54,11 +55,11 @@ are created automatically on first use.
 ## Student dashboard
 
 Students see a calendar too: green **available to book** slots, their own lessons in purple, and
-their own pending requests (orange booking requests, red cancellation requests). Clicking a green
-slot sends a booking request; clicking one of their own lessons sends a cancellation request;
-clicking a pending request shows its status. Other students' bookings and requests are never shown —
-`getAvailableSlots` only returns slots that are free (no active booking and no pending request), and
-the student endpoints only return the signed-in student's own data.
+their own pending booking requests in orange. Clicking a green slot sends a booking request; clicking
+a lesson just shows its details (cancellations are handled by the teacher); clicking a pending
+request shows its status. Other students' bookings and requests are never shown — `getAvailableSlots`
+only returns slots that are free (no active booking and no pending request), and the student
+endpoints only return the signed-in student's own data.
 
 ## 2. Google OAuth client ID (for Sign-In)
 
@@ -119,23 +120,23 @@ All requests `POST` to the web app URL with `{ "action": "...", ... }`.
 | `validateUser` | any | returns `teacher` / `student` / `unauthorized` |
 | `getAvailableSlots` | student/teacher | available slots |
 | `getMyBookings` | student | own bookings |
-| `getMyRequests` | student | own booking/cancel requests |
+| `getMyRequests` | student | own booking requests |
 | `requestBooking` | student | submit booking request |
-| `requestCancellation` | student | submit cancellation request |
-| `getAdminData` | teacher | students + slots + requests + bookings + recurring |
+| `getAdminData` | teacher | students + slots + requests + bookings |
 | `getPendingRequests` | teacher | pending requests |
 | `approveRequest` / `rejectRequest` | teacher | handle a request |
 | `listStudents` / `addStudent` / `disableStudent` / `enableStudent` | teacher | student management |
-| `createAvailability` / `createWeeklyAvailability` / `blockSlot` / `unblockSlot` / `deleteSlot` | teacher | availability management |
-| `createRecurringClass` / `generateRecurringBookings` / `disableRecurringClass` / `enableRecurringClass` / `deleteRecurringClass` | teacher | recurring classes |
+| `createAvailability` / `createWeeklyAvailability` / `cancelBooking` / `blockSlot` / `unblockSlot` / `deleteSlot` | teacher | scheduling & cancellation |
 
 ## Teacher dashboard
 
 The admin page is calendar-first: the teacher sees availability, lessons, blocked slots and pending
-requests all on one calendar. Clicking an **empty time** opens a dialog to create an open slot —
-either **this day only** or **weekly** (repeats every week between two dates). Clicking an **event**
-opens an action dialog: pending booking/cancellation requests can be **approved or rejected**,
-open slots can be **deleted**, blocked slots can be **unblocked**, and approved lessons show details.
+requests all on one calendar. Clicking an **empty time** opens a dialog to create a slot — either
+**this day only** or **weekly** (repeats every week between two dates) — and an **"Assign to"**
+dropdown: choose **Open slot** (students can request it) or a specific **student** (schedules the
+lesson directly and adds it to your calendar). Clicking an **event** opens an action dialog:
+pending booking requests can be **approved or rejected**, open slots can be **deleted**, blocked
+slots can be **unblocked**, and lessons can be **cancelled** directly (removes the calendar event).
 A "Pending requests" panel on the right gives quick approve/reject buttons as well.
 
 ## Security

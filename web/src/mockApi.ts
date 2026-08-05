@@ -210,30 +210,7 @@ export default async function mock(action: string, params: Record<string, unknow
 
     case 'requestCancellation': {
       requireStudent();
-      const booking = getBookings().find((b) => b.booking_id === params.bookingId);
-      if (!booking) throw new Error('Booking not found');
-      if (booking.student_email.toLowerCase() !== email) throw new Error('Not your booking');
-      if (booking.status !== 'ACTIVE') throw new Error('Booking is not active');
-      const reqs = getRequests();
-      if (reqs.some((r) => r.booking_id === booking.booking_id && r.status === 'PENDING')) {
-        throw new Error('A cancellation request is already pending');
-      }
-      const student = getStudent(email)!;
-      reqs.push({
-        request_id: genId('req'),
-        student_id: student.student_id,
-        student_email: student.email,
-        student_name: student.name,
-        type: 'CANCEL',
-        slot_id: '',
-        booking_id: booking.booking_id,
-        start_time: booking.start_time,
-        end_time: booking.end_time,
-        status: 'PENDING',
-        created_at: new Date().toISOString(),
-      });
-      save('requests', reqs);
-      return { message: 'Cancellation request submitted' };
+      throw new Error('Cancellations are handled by the teacher.');
     }
 
     case 'getAdminData': {
@@ -327,16 +304,36 @@ export default async function mock(action: string, params: Record<string, unknow
       return { message: 'Student enabled' };
     }
 
+    case 'cancelBooking': {
+      requireTeacher();
+      const bookings = getBookings();
+      const booking = bookings.find((b) => b.booking_id === params.bookingId);
+      if (!booking) throw new Error('Booking not found');
+      if (booking.status !== 'ACTIVE') throw new Error('Booking is not active');
+      booking.status = 'CANCELLED';
+      save('bookings', bookings);
+      const slots = getSlots();
+      const slot = slots.find((s) => s.start_time === booking.start_time && s.status === 'BOOKED');
+      if (slot) slot.status = 'AVAILABLE';
+      save('availability', slots);
+      return { message: 'Lesson cancelled' };
+    }
+
     case 'createAvailability': {
       requireTeacher();
       const start = String(params.startTime);
       const end = String(params.endTime);
       if (!start || !end) throw new Error('Start and end times are required');
       if (new Date(start).getTime() >= new Date(end).getTime()) throw new Error('End time must be after start time');
+      const studentId = String(params.studentId || '');
       const slots = getSlots();
-      slots.push({ slot_id: genId('slot'), start_time: start, end_time: end, status: 'AVAILABLE' });
-      save('availability', slots);
-      return { message: 'Slot created' };
+      if (studentId) {
+        createDirectBooking(start, end, studentId);
+      } else {
+        slots.push({ slot_id: genId('slot'), start_time: start, end_time: end, status: 'AVAILABLE' });
+        save('availability', slots);
+      }
+      return { message: studentId ? 'Lesson scheduled' : 'Slot created' };
     }
 
     case 'createWeeklyAvailability': {
@@ -346,6 +343,7 @@ export default async function mock(action: string, params: Record<string, unknow
       const weekday = String(params.weekday).toLowerCase();
       const startDate = String(params.startDate);
       const endDate = String(params.endDate);
+      const studentId = String(params.studentId || '');
       if (!startTime || !endTime) throw new Error('Start and end times are required');
       const wd = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'].indexOf(weekday);
       if (wd === -1) throw new Error('Invalid weekday');
@@ -354,6 +352,9 @@ export default async function mock(action: string, params: Record<string, unknow
       const [sh, sm] = startTime.split(':').map(Number);
       const [eh, em] = endTime.split(':').map(Number);
       const existing = new Set(getSlots().map((s) => s.start_time));
+      if (studentId) {
+        getBookings().filter((b) => b.status === 'ACTIVE').forEach((b) => existing.add(b.start_time));
+      }
       const slots = getSlots();
       const cursor = new Date(startDate + 'T00:00:00');
       const end = new Date(endDate + 'T23:59:59');
@@ -367,7 +368,11 @@ export default async function mock(action: string, params: Record<string, unknow
           en.setHours(eh, em, 0, 0);
           const isoStart = st.toISOString();
           if (!existing.has(isoStart)) {
-            slots.push({ slot_id: genId('slot'), start_time: isoStart, end_time: en.toISOString(), status: 'AVAILABLE' });
+            if (studentId) {
+              createDirectBooking(isoStart, en.toISOString(), studentId);
+            } else {
+              slots.push({ slot_id: genId('slot'), start_time: isoStart, end_time: en.toISOString(), status: 'AVAILABLE' });
+            }
             existing.add(isoStart);
             created++;
           }
@@ -376,7 +381,7 @@ export default async function mock(action: string, params: Record<string, unknow
         guard++;
       }
       save('availability', slots);
-      return { message: 'Weekly availability created', generated: created };
+      return { message: studentId ? 'Recurring lessons scheduled' : 'Weekly availability created', generated: created };
     }
 
     case 'blockSlot':
@@ -478,6 +483,33 @@ function getAdminData(): AdminData {
     bookings: bookings.sort((a, b) => b.start_time.localeCompare(a.start_time)),
     recurring: getRecurring(),
   };
+}
+
+function createDirectBooking(startTime: string, endTime: string, studentId: string) {
+  const student = getStudents().find((s) => s.student_id === studentId);
+  if (!student) throw new Error('Student not found');
+  const bookings = getBookings();
+  bookings.push({
+    booking_id: genId('bk'),
+    student_id: student.student_id,
+    student_email: student.email,
+    student_name: student.name,
+    start_time: startTime,
+    end_time: endTime,
+    status: 'ACTIVE',
+    calendar_event_id: 'mock_event_' + genId('ev'),
+    recurring_id: '',
+    created_at: new Date().toISOString(),
+  });
+  save('bookings', bookings);
+  const slots = getSlots();
+  const slot = slots.find((s) => s.start_time === startTime);
+  if (slot) {
+    slot.status = 'BOOKED';
+  } else {
+    slots.push({ slot_id: genId('slot'), start_time: startTime, end_time: endTime, status: 'BOOKED' });
+  }
+  save('availability', slots);
 }
 
 function generateRecurring(rc: RecurringClass, includeAll: boolean): number {

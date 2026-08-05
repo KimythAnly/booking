@@ -51,8 +51,6 @@ export const api = {
   getMyRequests: (email: string) => call<{ requests: BookingRequest[] }>('getMyRequests', { email }),
   requestBooking: (email: string, slotId: string) =>
     call<{ message: string }>('requestBooking', { email, slotId }),
-  requestCancellation: (email: string, bookingId: string) =>
-    call<{ message: string }>('requestCancellation', { email, bookingId }),
 
   // Teacher
   getAdminData: (email: string) => call<AdminData>('getAdminData', { email }),
@@ -67,12 +65,19 @@ export const api = {
     call<{ message: string }>('disableStudent', { email, studentId }),
   enableStudent: (email: string, studentId: string) =>
     call<{ message: string }>('enableStudent', { email, studentId }),
-  createAvailability: (email: string, startTime: string, endTime: string) =>
-    call<{ message: string }>('createAvailability', { email, startTime, endTime }),
+  cancelBooking: (email: string, bookingId: string) =>
+    call<{ message: string }>('cancelBooking', { email, bookingId }),
+  createAvailability: (email: string, startTime: string, endTime: string, studentId?: string) =>
+    call<{ message: string }>('createAvailability', { email, startTime, endTime, studentId: studentId || '' }),
   createWeeklyAvailability: (
     email: string,
-    data: { weekday: string; startTime: string; endTime: string; startDate: string; endDate: string },
-  ) => call<{ message: string; generated: number }>('createWeeklyAvailability', { email, ...data }),
+    data: { weekday: string; startTime: string; endTime: string; startDate: string; endDate: string; studentId?: string },
+  ) =>
+    call<{ message: string; generated: number }>('createWeeklyAvailability', {
+      email,
+      ...data,
+      studentId: data.studentId || '',
+    }),
   blockSlot: (email: string, slotId: string) => call<{ message: string }>('blockSlot', { email, slotId }),
   unblockSlot: (email: string, slotId: string) => call<{ message: string }>('unblockSlot', { email, slotId }),
   deleteSlot: (email: string, slotId: string) => call<{ message: string }>('deleteSlot', { email, slotId }),

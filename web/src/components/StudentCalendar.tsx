@@ -35,10 +35,6 @@ export default function StudentCalendar({ slots, bookings, requests, onDone, onE
   const [selectedRequest, setSelectedRequest] = useState<BookingRequest | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const pendingCancelTimes = new Set(
-    requests.filter((r) => r.type === 'CANCEL' && r.status === 'PENDING').map((r) => r.start_time),
-  );
-
   const events: EventInput[] = [
     ...slots.map((s) => ({
       id: 'av_' + s.slot_id,
@@ -51,7 +47,7 @@ export default function StudentCalendar({ slots, bookings, requests, onDone, onE
       extendedProps: { kind: 'available' as const },
     })),
     ...bookings
-      .filter((b) => b.status === 'ACTIVE' && !pendingCancelTimes.has(b.start_time))
+      .filter((b) => b.status === 'ACTIVE')
       .map((b) => ({
         id: 'bk_' + b.booking_id,
         title: 'My lesson',
@@ -66,11 +62,11 @@ export default function StudentCalendar({ slots, bookings, requests, onDone, onE
       .filter((r) => r.status === 'PENDING')
       .map((r) => ({
         id: 'req_' + r.request_id,
-        title: r.type === 'BOOK' ? 'Booking request' : 'Cancellation request',
+        title: r.type === 'CANCEL' ? 'Cancellation request' : 'Booking request',
         start: r.start_time,
         end: r.end_time,
-        backgroundColor: r.type === 'BOOK' ? '#f59e0b' : '#e11d48',
-        borderColor: r.type === 'BOOK' ? '#f59e0b' : '#e11d48',
+        backgroundColor: r.type === 'CANCEL' ? '#e11d48' : '#f59e0b',
+        borderColor: r.type === 'CANCEL' ? '#e11d48' : '#f59e0b',
         textColor: '#ffffff',
         extendedProps: { kind: 'request' as const },
       })),
@@ -102,31 +98,15 @@ export default function StudentCalendar({ slots, bookings, requests, onDone, onE
     }
   }
 
-  async function confirmCancellation() {
-    if (!selectedBooking) return;
-    setBusy(true);
-    try {
-      await api.requestCancellation(email, selectedBooking.booking_id);
-      onDone(`Cancellation requested for ${formatDateTime(selectedBooking.start_time)}. Waiting for approval.`);
-      setSelectedBooking(null);
-    } catch (err) {
-      onError((err as Error).message);
-      setSelectedBooking(null);
-    } finally {
-      setBusy(false);
-    }
-  }
-
   return (
     <Box>
       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
         <Chip size="small" label="Available to book" sx={{ bgcolor: '#22c55e', color: '#fff' }} />
         <Chip size="small" label="My lesson" sx={{ bgcolor: '#4f46e5', color: '#fff' }} />
         <Chip size="small" label="Pending request" sx={{ bgcolor: '#f59e0b', color: '#fff' }} />
-        <Chip size="small" label="Cancellation request" sx={{ bgcolor: '#e11d48', color: '#fff' }} />
       </Stack>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-        Tip: click a green slot to request a booking, or click one of your lessons to request a cancellation.
+        Tip: click a green slot to request a booking.
       </Typography>
       <Box sx={{ bgcolor: 'background.paper', borderRadius: 2, boxShadow: 1, p: 1 }}>
         <FullCalendar
@@ -170,25 +150,23 @@ export default function StudentCalendar({ slots, bookings, requests, onDone, onE
         </DialogActions>
       </Dialog>
 
-      {/* Cancel lesson dialog */}
+      {/* Lesson info dialog */}
       <Dialog open={!!selectedBooking} onClose={() => setSelectedBooking(null)} maxWidth="xs" fullWidth>
-        <DialogTitle>Request cancellation</DialogTitle>
+        <DialogTitle>Your lesson</DialogTitle>
         <DialogContent>
-          <Typography>Request to cancel this lesson?</Typography>
           {selectedBooking && (
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-              {formatDateTime(selectedBooking.start_time)} – {formatDateTime(selectedBooking.end_time)}
-            </Typography>
+            <>
+              <Typography variant="body2" color="text.secondary">
+                {formatDateTime(selectedBooking.start_time)} – {formatDateTime(selectedBooking.end_time)}
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                Cancellations are handled by the teacher.
+              </Typography>
+            </>
           )}
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-            The teacher must approve your request before the lesson is removed.
-          </Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setSelectedBooking(null)}>Cancel</Button>
-          <Button variant="contained" color="error" onClick={confirmCancellation} disabled={busy}>
-            Send request
-          </Button>
+          <Button onClick={() => setSelectedBooking(null)}>Close</Button>
         </DialogActions>
       </Dialog>
 

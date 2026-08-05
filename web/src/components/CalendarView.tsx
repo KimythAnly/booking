@@ -14,6 +14,7 @@ import {
   DialogContent,
   DialogTitle,
   FormControlLabel,
+  MenuItem,
   Radio,
   RadioGroup,
   Stack,
@@ -47,6 +48,7 @@ interface NewSlot {
   startInput: string;
   endInput: string;
   mode: 'single' | 'weekly';
+  studentId: string;
   weekStartDate: string;
   weekEndDate: string;
 }
@@ -114,6 +116,7 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
   const selectedRequest = data.pendingRequests.find((r) => 'req_' + r.request_id === selected?.id);
   const selectedSlot = data.availability.find((s) => 'slot_' + s.slot_id === selected?.id);
   const selectedBooking = data.bookings.find((b) => 'bk_' + b.booking_id === selected?.id);
+  const activeStudents = data.students.filter((s) => String(s.active).toUpperCase() === 'TRUE');
 
   function handleSelect(info: DateSelectArg) {
     if (info.allDay) return;
@@ -126,6 +129,7 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
       startInput: toInput(start),
       endInput: toInput(end),
       mode: 'single',
+      studentId: '',
       weekStartDate: toDateStr(start),
       weekEndDate: toDateStr(new Date(start.getTime() + 8 * 7 * 86400000)),
     });
@@ -158,8 +162,8 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
       const end = new Date(newSlot.endInput);
       if (end.getTime() <= start.getTime()) throw new Error('End time must be after start time');
       if (newSlot.mode === 'single') {
-        await api.createAvailability(email, toIso(start), toIso(end));
-        onDone('Availability slot created');
+        await api.createAvailability(email, toIso(start), toIso(end), newSlot.studentId || undefined);
+        onDone(newSlot.studentId ? 'Lesson scheduled' : 'Availability slot created');
       } else {
         const ws = new Date(newSlot.weekStartDate);
         const we = new Date(newSlot.weekEndDate);
@@ -172,8 +176,13 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
           endTime: newSlot.endInput.split('T')[1].slice(0, 5),
           startDate: toDateStr(ws),
           endDate: toDateStr(we),
+          studentId: newSlot.studentId || undefined,
         });
-        onDone(`Weekly availability created (${res.generated} slots)`);
+        onDone(
+          newSlot.studentId
+            ? `Weekly lessons scheduled (${res.generated})`
+            : `Weekly availability created (${res.generated} slots)`,
+        );
       }
       setNewSlot(null);
     } catch (err) {
@@ -227,7 +236,7 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
           {newSlot && (
             <>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                {WEEKDAYS[newSlot.weekdayIndex]} · {formatDate(newSlot.startInput)} — students can request this open slot.
+                {WEEKDAYS[newSlot.weekdayIndex]} · {formatDate(newSlot.startInput)}
               </Typography>
               {error && (
                 <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
@@ -242,6 +251,27 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
                 <FormControlLabel value="single" control={<Radio />} label="This day only" />
                 <FormControlLabel value="weekly" control={<Radio />} label={`Weekly (every ${WEEKDAYS[newSlot.weekdayIndex]})`} />
               </RadioGroup>
+              <TextField
+                select
+                label="Assign to"
+                size="small"
+                value={newSlot.studentId}
+                fullWidth
+                sx={{ mt: 2 }}
+                onChange={(e) => setNewSlot({ ...newSlot, studentId: e.target.value })}
+                helperText={
+                  newSlot.studentId
+                    ? 'Schedules a lesson for this student (added to your calendar).'
+                    : 'Open slot that students can request.'
+                }
+              >
+                <MenuItem value="">Open slot (students can request)</MenuItem>
+                {activeStudents.map((s) => (
+                  <MenuItem key={s.student_id} value={s.student_id}>
+                    {s.name}
+                  </MenuItem>
+                ))}
+              </TextField>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mt: 2 }}>
                 <TextField
                   label="Start"
@@ -377,6 +407,18 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
                 Delete slot
               </Button>
             </>
+          )}
+          {selected?.kind === 'booking' && selectedBooking && (
+            <Button
+              color="error"
+              startIcon={<DeleteIcon />}
+              disabled={busy}
+              onClick={() =>
+                run(() => api.cancelBooking(email, selectedBooking.booking_id), 'Lesson cancelled — calendar updated')
+              }
+            >
+              Cancel lesson
+            </Button>
           )}
         </DialogActions>
       </Dialog>

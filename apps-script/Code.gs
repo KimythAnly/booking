@@ -82,11 +82,6 @@ function doPost(e) {
         requestBooking_(email, body.slotId);
         return json_({ message: 'Booking request submitted' });
       }
-      case 'requestCancellation': {
-        requireStudent_(role);
-        requestCancellation_(email, body.bookingId);
-        return json_({ message: 'Cancellation request submitted' });
-      }
 
       // ---- Teacher only ----
       case 'getAdminData': {
@@ -127,12 +122,16 @@ function doPost(e) {
       }
       case 'createAvailability': {
         requireTeacher_(role);
-        createAvailability_(body.startTime, body.endTime);
-        return json_({ message: 'Slot created' });
+        createAvailability_(body.startTime, body.endTime, body.studentId);
+        return json_({ message: body.studentId ? 'Lesson scheduled' : 'Slot created' });
       }
       case 'createWeeklyAvailability': {
         requireTeacher_(role);
-        return json_(createWeeklyAvailability_(body.weekday, body.startTime, body.endTime, body.startDate, body.endDate));
+        return json_(createWeeklyAvailability_(body.weekday, body.startTime, body.endTime, body.startDate, body.endDate, body.studentId));
+      }
+      case 'cancelBooking': {
+        requireTeacher_(role);
+        return json_(cancelBooking_(body.bookingId));
       }
       case 'blockSlot': {
         requireTeacher_(role);
@@ -369,34 +368,6 @@ function requestBooking_(email, slotId) {
   });
 }
 
-function requestCancellation_(email, bookingId) {
-  return runLocked_(function () {
-    var booking = findById_(SHEET_NAMES.bookings, 'booking_id', bookingId);
-    if (!booking) throw new Error('Booking not found');
-    if (String(booking.student_email).toLowerCase() !== email) throw new Error('You can only cancel your own bookings');
-    if (booking.status !== 'ACTIVE') throw new Error('This booking is not active');
-
-    var dup = readAll_(SHEET_NAMES.requests).find(function (r) {
-      return String(r.booking_id) === String(bookingId) && r.status === 'PENDING';
-    });
-    if (dup) throw new Error('A cancellation request is already pending');
-
-    appendRow_(SHEET_NAMES.requests, {
-      request_id: genId_('req'),
-      student_id: booking.student_id,
-      student_email: booking.student_email,
-      student_name: booking.student_name,
-      type: 'CANCEL',
-      slot_id: '',
-      booking_id: booking.booking_id,
-      start_time: booking.start_time,
-      end_time: booking.end_time,
-      status: 'PENDING',
-      created_at: nowIso_(),
-    });
-  });
-}
-
 // ============================================================
 // Teacher APIs
 // ============================================================
@@ -464,10 +435,14 @@ function addStudent_(name, studentEmail) {
   });
 }
 
-function createAvailability_(startTime, endTime) {
+function createAvailability_(startTime, endTime, studentId) {
   if (!startTime || !endTime) throw new Error('Start and end times are required');
   if (new Date(startTime).getTime() >= new Date(endTime).getTime()) {
     throw new Error('End time must be after start time');
+  }
+  if (studentId) {
+    createDirectBooking_(startTime, endTime, studentId, '');
+    return;
   }
   appendRow_(SHEET_NAMES.availability, {
     slot_id: genId_('slot'),
@@ -477,7 +452,43 @@ function createAvailability_(startTime, endTime) {
   });
 }
 
-function createWeeklyAvailability_(weekday, startTime, endTime, startDate, endDate) {
+// Creates an ACTIVE booking (with a calendar event) and reserves the time in the
+// availability sheet, so the slot disappears from students' bookable view and can
+// be released again if the teacher cancels the lesson.
+function createDirectBooking_(startTime, endTime, studentId, recurringId) {
+  var student = findById_(SHEET_NAMES.students, 'student_id', studentId);
+  if (!student || !isTrue_(student.active)) throw new Error('Student not found or inactive');
+
+  var eventId = createCalendarEvent_(startTime, endTime, student.name, student.email);
+  appendRow_(SHEET_NAMES.bookings, {
+    booking_id: genId_('bk'),
+    student_id: student.student_id,
+    student_email: student.email,
+    student_name: student.name,
+    start_time: startTime,
+    end_time: endTime,
+    status: 'ACTIVE',
+    calendar_event_id: eventId,
+    recurring_id: recurringId || '',
+    created_at: nowIso_(),
+  });
+
+  var slot = readAll_(SHEET_NAMES.availability).find(function (s) {
+    return s.start_time === startTime;
+  });
+  if (slot) {
+    updateById_(SHEET_NAMES.availability, 'slot_id', slot.slot_id, { status: 'BOOKED' });
+  } else {
+    appendRow_(SHEET_NAMES.availability, {
+      slot_id: genId_('slot'),
+      start_time: startTime,
+      end_time: endTime,
+      status: 'BOOKED',
+    });
+  }
+}
+
+function createWeeklyAvailability_(weekday, startTime, endTime, startDate, endDate, studentId) {
   var wd = WEEKDAYS[String(weekday).toLowerCase()];
   if (wd === undefined) throw new Error('Invalid weekday');
   if (!startTime || !endTime) throw new Error('Start and end times are required');
@@ -487,6 +498,11 @@ function createWeeklyAvailability_(weekday, startTime, endTime, startDate, endDa
   if (!startDate || !endDate) throw new Error('Start and end dates are required');
   if (String(startDate) > String(endDate)) throw new Error('End date must be after start date');
 
+  if (studentId) {
+    var student = findById_(SHEET_NAMES.students, 'student_id', studentId);
+    if (!student || !isTrue_(student.active)) throw new Error('Student not found or inactive');
+  }
+
   var startParts = String(startTime).split(':').map(Number);
   var endParts = String(endTime).split(':').map(Number);
 
@@ -494,6 +510,11 @@ function createWeeklyAvailability_(weekday, startTime, endTime, startDate, endDa
   readAll_(SHEET_NAMES.availability).forEach(function (s) {
     existing[s.start_time] = true;
   });
+  if (studentId) {
+    readAll_(SHEET_NAMES.bookings).forEach(function (b) {
+      if (b.status === 'ACTIVE') existing[b.start_time] = true;
+    });
+  }
 
   var cursor = new Date(String(startDate) + 'T00:00:00');
   var end = new Date(String(endDate) + 'T23:59:59');
@@ -505,19 +526,36 @@ function createWeeklyAvailability_(weekday, startTime, endTime, startDate, endDa
       var stop = new Date(cursor); stop.setHours(endParts[0], endParts[1], 0, 0);
       var isoStart = fmt_(start);
       if (!existing[isoStart]) {
-        appendRow_(SHEET_NAMES.availability, {
-          slot_id: genId_('slot'),
-          start_time: isoStart,
-          end_time: fmt_(stop),
-          status: 'AVAILABLE',
-        });
+        if (studentId) {
+          createDirectBooking_(isoStart, fmt_(stop), studentId, '');
+        } else {
+          appendRow_(SHEET_NAMES.availability, {
+            slot_id: genId_('slot'),
+            start_time: isoStart,
+            end_time: fmt_(stop),
+            status: 'AVAILABLE',
+          });
+        }
         created.push(isoStart);
       }
     }
     cursor.setDate(cursor.getDate() + 1);
     guard++;
   }
-  return { message: 'Weekly availability created', generated: created.length };
+  return { message: studentId ? 'Recurring lessons scheduled' : 'Weekly availability created', generated: created.length };
+}
+
+// Teacher-directly cancels a lesson: removes the calendar event and frees the slot.
+function cancelBooking_(bookingId) {
+  return runLocked_(function () {
+    var booking = findById_(SHEET_NAMES.bookings, 'booking_id', bookingId);
+    if (!booking) throw new Error('Booking not found');
+    if (booking.status !== 'ACTIVE') throw new Error('Booking is not active');
+    if (booking.calendar_event_id) deleteCalendarEvent_(booking.calendar_event_id);
+    updateById_(SHEET_NAMES.bookings, 'booking_id', booking.booking_id, { status: 'CANCELLED' });
+    freeSlot_(booking.start_time);
+    return { message: 'Lesson cancelled, calendar event removed' };
+  });
 }
 
 function getAdminData_() {
