@@ -181,6 +181,28 @@ export default async function mock(action: string, params: Record<string, unknow
       };
     }
 
+    case 'getStudentData': {
+      requireAny();
+      const now = Date.now();
+      const booked = new Set(getBookings().filter((b) => b.status === 'ACTIVE').map((b) => b.start_time));
+      const pending = new Set(
+        getRequests().filter((r) => r.type === 'BOOK' && r.status === 'PENDING').map((r) => r.start_time),
+      );
+      return {
+        slots: getSlots()
+          .filter((s) => s.status === 'AVAILABLE')
+          .filter((s) => new Date(s.start_time).getTime() > now)
+          .filter((s) => !booked.has(s.start_time) && !pending.has(s.start_time))
+          .sort((a, b) => a.start_time.localeCompare(b.start_time)),
+        bookings: getBookings()
+          .filter((b) => b.student_email.toLowerCase() === email)
+          .sort((a, b) => b.start_time.localeCompare(a.start_time)),
+        requests: getRequests()
+          .filter((r) => r.student_email.toLowerCase() === email)
+          .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))),
+      };
+    }
+
     case 'requestBooking': {
       requireStudent();
       const slot = getSlots().find((s) => s.slot_id === params.slotId);
@@ -191,7 +213,7 @@ export default async function mock(action: string, params: Record<string, unknow
       if (reqs.some((r) => r.slot_id === slot.slot_id && r.status === 'PENDING')) {
         throw new Error('A request for this slot is already pending');
       }
-      reqs.push({
+      const request: BookingRequest = {
         request_id: genId('req'),
         student_id: student.student_id,
         student_email: student.email,
@@ -203,9 +225,10 @@ export default async function mock(action: string, params: Record<string, unknow
         end_time: slot.end_time,
         status: 'PENDING',
         created_at: new Date().toISOString(),
-      });
+      };
+      reqs.push(request);
       save('requests', reqs);
-      return { message: 'Booking request submitted' };
+      return { message: 'Booking request submitted', request };
     }
 
     case 'requestCancellation': {

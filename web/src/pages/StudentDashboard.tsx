@@ -6,10 +6,10 @@ import {
   Card,
   CardContent,
   Chip,
-  CircularProgress,
   List,
   ListItem,
   ListItemText,
+  Skeleton,
   Stack,
   Typography,
 } from '@mui/material';
@@ -34,14 +34,10 @@ export default function StudentDashboard() {
 
   const load = useCallback(async () => {
     try {
-      const [slotsRes, bookingsRes, requestsRes] = await Promise.all([
-        api.getAvailableSlots(email),
-        api.getMyBookings(email),
-        api.getMyRequests(email),
-      ]);
-      setSlots(slotsRes.slots);
-      setBookings(bookingsRes.bookings);
-      setRequests(requestsRes.requests);
+      const data = await api.getStudentData(email);
+      setSlots(data.slots);
+      setBookings(data.bookings);
+      setRequests(data.requests);
       setError('');
     } catch (err) {
       setError((err as Error).message);
@@ -52,7 +48,9 @@ export default function StudentDashboard() {
 
   useEffect(() => {
     load();
-    const t = setInterval(load, REFRESH_MS);
+    const t = setInterval(() => {
+      if (!document.hidden) load();
+    }, REFRESH_MS);
     return () => clearInterval(t);
   }, [load]);
 
@@ -84,9 +82,11 @@ export default function StudentDashboard() {
       )}
 
       {loading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
-          <CircularProgress />
-        </Box>
+        <Stack spacing={2} sx={{ py: 2 }}>
+          <Skeleton variant="text" width={220} />
+          <Skeleton variant="rounded" height={360} />
+          <Skeleton variant="rounded" height={120} />
+        </Stack>
       ) : (
         <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2} alignItems="flex-start">
           <Box sx={{ flex: 1, minWidth: 0 }}>
@@ -94,9 +94,13 @@ export default function StudentDashboard() {
               slots={slots}
               bookings={bookings}
               requests={requests}
-              onDone={(msg) => {
+              onDone={(msg, request) => {
                 setInfo(msg);
                 setError('');
+                if (request) {
+                  setSlots((prev) => prev.filter((s) => s.slot_id !== request.slot_id));
+                  setRequests((prev) => [request, ...prev.filter((r) => r.request_id !== request.request_id)]);
+                }
                 load();
               }}
               onError={(msg) => setError(msg)}

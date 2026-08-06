@@ -24,7 +24,7 @@ interface Props {
   slots: Slot[];
   bookings: Booking[];
   requests: BookingRequest[];
-  onDone: (msg: string) => void;
+  onDone: (msg: string, request?: BookingRequest) => void;
   onError: (msg: string) => void;
 }
 
@@ -87,8 +87,8 @@ export default function StudentCalendar({ slots, bookings, requests, onDone, onE
     if (!selectedSlot) return;
     setBusy(true);
     try {
-      await api.requestBooking(email, selectedSlot.slot_id);
-      onDone(`Booking requested for ${formatDateTime(selectedSlot.start_time)}. Waiting for approval.`);
+      const res = await api.requestBooking(email, selectedSlot.slot_id);
+      onDone(`Booking requested for ${formatDateTime(selectedSlot.start_time)}. Waiting for approval.`, res.request);
       setSelectedSlot(null);
     } catch (err) {
       onError((err as Error).message);

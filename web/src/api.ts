@@ -49,8 +49,10 @@ export const api = {
   getAvailableSlots: (email: string) => call<{ slots: Slot[] }>('getAvailableSlots', { email }),
   getMyBookings: (email: string) => call<{ bookings: Booking[] }>('getMyBookings', { email }),
   getMyRequests: (email: string) => call<{ requests: BookingRequest[] }>('getMyRequests', { email }),
+  getStudentData: (email: string) =>
+    call<{ slots: Slot[]; bookings: Booking[]; requests: BookingRequest[] }>('getStudentData', { email }),
   requestBooking: (email: string, slotId: string) =>
-    call<{ message: string }>('requestBooking', { email, slotId }),
+    call<{ message: string; request: BookingRequest }>('requestBooking', { email, slotId }),
 
   // Teacher
   getAdminData: (email: string) => call<AdminData>('getAdminData', { email }),

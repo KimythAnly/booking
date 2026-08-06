@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Box, Button, CircularProgress, Stack, Tabs, Tab, Typography } from '@mui/material';
+import { Alert, Box, Button, Skeleton, Stack, Tabs, Tab, Typography } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import Layout from '../components/Layout';
 import { useAuth } from '../auth';
@@ -62,9 +62,11 @@ export default function AdminDashboard() {
       )}
 
       {loading || !data ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
-          <CircularProgress />
-        </Box>
+        <Stack spacing={2} sx={{ py: 2 }}>
+          <Skeleton variant="text" width={200} />
+          <Skeleton variant="rounded" height={360} />
+          <Skeleton variant="rounded" height={140} />
+        </Stack>
       ) : (
         <>
           <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>

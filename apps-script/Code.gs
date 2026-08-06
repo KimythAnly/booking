@@ -74,10 +74,17 @@ function doPost(e) {
         requireStudentOrTeacher_(role);
         return json_({ requests: getStudentRequests_(email) });
       }
+      case 'getStudentData': {
+        requireStudentOrTeacher_(role);
+        return json_({
+          slots: getAvailableSlots_(),
+          bookings: getStudentBookings_(email),
+          requests: getStudentRequests_(email),
+        });
+      }
       case 'requestBooking': {
         requireStudent_(role);
-        requestBooking_(email, body.slotId);
-        return json_({ message: 'Booking request submitted' });
+        return json_({ message: 'Booking request submitted', request: requestBooking_(email, body.slotId) });
       }
 
       // ---- Teacher only ----
@@ -349,7 +356,7 @@ function requestBooking_(email, slotId) {
     });
     if (dup) throw new Error('A request for this slot is already pending');
 
-    appendRow_(SHEET_NAMES.requests, {
+    var request = {
       request_id: genId_('req'),
       student_id: student.student_id,
       student_email: student.email,
@@ -361,7 +368,9 @@ function requestBooking_(email, slotId) {
       end_time: slot.end_time,
       status: 'PENDING',
       created_at: nowIso_(),
-    });
+    };
+    appendRow_(SHEET_NAMES.requests, request);
+    return request;
   });
 }
 
@@ -558,6 +567,7 @@ function cancelBooking_(bookingId) {
 function getAdminData_() {
   var availability = readAll_(SHEET_NAMES.availability);
   var bookings = readAll_(SHEET_NAMES.bookings);
+  var requests = readAll_(SHEET_NAMES.requests);
   var bookedNames = {};
   bookings.forEach(function (b) {
     if (b.status === 'ACTIVE') bookedNames[b.start_time] = b.student_name;
@@ -570,8 +580,10 @@ function getAdminData_() {
   return {
     students: readAll_(SHEET_NAMES.students),
     availability: availability,
-    pendingRequests: getPendingRequests_(),
-    requests: readAll_(SHEET_NAMES.requests).sort(function (a, b) {
+    pendingRequests: requests
+      .filter(function (r) { return r.status === 'PENDING'; })
+      .sort(function (a, b) { return String(a.created_at).localeCompare(String(b.created_at)); }),
+    requests: requests.sort(function (a, b) {
       return String(b.created_at).localeCompare(String(a.created_at));
     }),
     bookings: bookings.sort(function (a, b) { return b.start_time.localeCompare(a.start_time); }),
