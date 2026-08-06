@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import timeGridPlugin from '@fullcalendar/timegrid';
@@ -58,14 +58,33 @@ interface SelectedEvent {
   kind: 'request' | 'slot' | 'booking';
 }
 
+interface CreatingSlot {
+  id: string;
+  start: string;
+  end: string;
+}
+
 export default function CalendarView({ data, onDone }: { data: AdminData; onDone: (msg: string) => void }) {
   const { email } = useAuth();
   const [newSlot, setNewSlot] = useState<NewSlot | null>(null);
   const [selected, setSelected] = useState<SelectedEvent | null>(null);
   const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
   const [processing, setProcessing] = useState<Record<string, string>>({});
+  const [done, setDone] = useState<Set<string>>(new Set());
+  const [creating, setCreating] = useState<CreatingSlot[]>([]);
   const inFlight = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    const known = new Set([
+      ...data.pendingRequests.map((r) => 'req_' + r.request_id),
+      ...data.availability.map((s) => 'slot_' + s.slot_id),
+      ...data.bookings.map((b) => 'bk_' + b.booking_id),
+    ]);
+    setDone((prev) => {
+      const next = new Set([...prev].filter((k) => known.has(k)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [data]);
 
   const pendingBookTimes = new Set(
     data.pendingRequests.filter((r) => r.type === 'BOOK').map((r) => r.start_time),
@@ -75,28 +94,31 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
   );
 
   const events: EventInput[] = [
-    ...data.pendingRequests.map((r) => {
-      const label = processing['req_' + r.request_id];
-      return {
-        id: 'req_' + r.request_id,
-        title: label
-          ? `${label} - ${r.student_name}`
-          : r.type === 'BOOK'
-            ? `Request - ${r.student_name}`
-            : `Cancel - ${r.student_name}`,
-        start: r.start_time,
-        end: r.end_time,
-        backgroundColor: label ? '#94a3b8' : r.type === 'BOOK' ? '#f59e0b' : '#e11d48',
-        borderColor: label ? '#94a3b8' : r.type === 'BOOK' ? '#f59e0b' : '#e11d48',
-        textColor: '#ffffff',
-        extendedProps: { kind: 'request' as const },
-      };
-    }),
+    ...data.pendingRequests
+      .filter((r) => !done.has('req_' + r.request_id))
+      .map((r) => {
+        const label = processing['req_' + r.request_id];
+        return {
+          id: 'req_' + r.request_id,
+          title: label
+            ? `${label} - ${r.student_name}`
+            : r.type === 'BOOK'
+              ? `Request - ${r.student_name}`
+              : `Cancel - ${r.student_name}`,
+          start: r.start_time,
+          end: r.end_time,
+          backgroundColor: label ? '#94a3b8' : r.type === 'BOOK' ? '#f59e0b' : '#e11d48',
+          borderColor: label ? '#94a3b8' : r.type === 'BOOK' ? '#f59e0b' : '#e11d48',
+          textColor: '#ffffff',
+          extendedProps: { kind: 'request' as const },
+        };
+      }),
     ...data.availability
       .filter(
         (s) =>
           (s.status === 'AVAILABLE' || s.status === 'BLOCKED') &&
-          !(s.status === 'AVAILABLE' && pendingBookTimes.has(s.start_time)),
+          !(s.status === 'AVAILABLE' && pendingBookTimes.has(s.start_time)) &&
+          !done.has('slot_' + s.slot_id),
       )
       .map((s) => {
         const label = processing['slot_' + s.slot_id];
@@ -112,7 +134,7 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
         };
       }),
     ...data.bookings
-      .filter((b) => b.status === 'ACTIVE' && !pendingCancelTimes.has(b.start_time))
+      .filter((b) => b.status === 'ACTIVE' && !pendingCancelTimes.has(b.start_time) && !done.has('bk_' + b.booking_id))
       .map((b) => {
         const label = processing['bk_' + b.booking_id];
         return {
@@ -126,6 +148,16 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
           extendedProps: { kind: 'booking' as const },
         };
       }),
+    ...creating.map((c) => ({
+      id: 'creating_' + c.id,
+      title: 'Creating…',
+      start: c.start,
+      end: c.end,
+      backgroundColor: '#94a3b8',
+      borderColor: '#94a3b8',
+      textColor: '#ffffff',
+      extendedProps: { kind: 'creating' as const },
+    })),
   ];
 
   const selectedRequest = data.pendingRequests.find((r) => 'req_' + r.request_id === selected?.id);
@@ -152,6 +184,7 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
 
   function handleEventClick(info: EventClickArg) {
     const kind = (info.event.extendedProps as { kind?: string }).kind ?? 'booking';
+    if (kind === 'creating') return;
     setError('');
     setSelected({ id: info.event.id, kind: kind as SelectedEvent['kind'] });
   }
@@ -162,7 +195,10 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
     setSelected(null);
     if (key) setProcessing((prev) => ({ ...prev, [key]: label ?? 'Processing…' }));
     action()
-      .then(() => onDone(message))
+      .then(() => {
+        if (key) setDone((prev) => new Set(prev).add(key));
+        onDone(message);
+      })
       .catch((err) => setError((err as Error).message))
       .finally(() => {
         if (key) {
@@ -176,42 +212,65 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
       });
   }
 
-  async function submitSlot() {
+  function createSlot() {
     if (!newSlot) return;
-    setBusy(true);
+    let start: Date;
+    let end: Date;
     try {
-      const start = new Date(newSlot.startInput);
-      const end = new Date(newSlot.endInput);
+      start = new Date(newSlot.startInput);
+      end = new Date(newSlot.endInput);
       if (end.getTime() <= start.getTime()) throw new Error('End time must be after start time');
-      if (newSlot.mode === 'single') {
-        await api.createAvailability(email, toIso(start), toIso(end), newSlot.studentId || undefined);
-        onDone(newSlot.studentId ? 'Lesson scheduled' : 'Availability slot created');
-      } else {
+      if (newSlot.mode === 'weekly') {
         const ws = new Date(newSlot.weekStartDate);
         const we = new Date(newSlot.weekEndDate);
         if (!newSlot.weekStartDate || !newSlot.weekEndDate || we.getTime() < ws.getTime()) {
           throw new Error('End date must be after start date');
         }
-        const res = await api.createWeeklyAvailability(email, {
-          weekday: WEEKDAYS[newSlot.weekdayIndex].toLowerCase(),
-          startTime: newSlot.startInput.split('T')[1].slice(0, 5),
-          endTime: newSlot.endInput.split('T')[1].slice(0, 5),
-          startDate: toDateStr(ws),
-          endDate: toDateStr(we),
-          studentId: newSlot.studentId || undefined,
-        });
-        onDone(
-          newSlot.studentId
-            ? `Weekly lessons scheduled (${res.generated})`
-            : `Weekly availability created (${res.generated} slots)`,
-        );
       }
-      setNewSlot(null);
     } catch (err) {
       setError((err as Error).message);
-    } finally {
-      setBusy(false);
+      return;
     }
+    const slot = newSlot;
+    const placeholder: CreatingSlot = { id: 'tmp_' + Date.now(), start: toIso(start), end: toIso(end) };
+    setCreating((prev) => [...prev, placeholder]);
+    setNewSlot(null);
+    setError('');
+
+    const action = (): Promise<{ generated?: number }> => {
+      if (slot.mode === 'single') {
+        return api.createAvailability(email, toIso(start), toIso(end), slot.studentId || undefined).then(() => ({
+          generated: 0,
+        }));
+      }
+      const ws = new Date(slot.weekStartDate);
+      const we = new Date(slot.weekEndDate);
+      return api
+        .createWeeklyAvailability(email, {
+          weekday: WEEKDAYS[slot.weekdayIndex].toLowerCase(),
+          startTime: slot.startInput.split('T')[1].slice(0, 5),
+          endTime: slot.endInput.split('T')[1].slice(0, 5),
+          startDate: toDateStr(ws),
+          endDate: toDateStr(we),
+          studentId: slot.studentId || undefined,
+        })
+        .then((res) => ({ generated: res.generated }));
+    };
+
+    action()
+      .then((res) => {
+        onDone(
+          slot.mode === 'single'
+            ? slot.studentId
+              ? 'Lesson scheduled'
+              : 'Availability slot created'
+            : slot.studentId
+              ? `Weekly lessons scheduled (${res.generated ?? 0})`
+              : `Weekly availability created (${res.generated ?? 0} slots)`,
+        );
+      })
+      .catch((err) => setError((err as Error).message))
+      .finally(() => setCreating((prev) => prev.filter((c) => c.id !== placeholder.id)));
   }
 
   return (
@@ -336,7 +395,7 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setNewSlot(null)}>Cancel</Button>
-          <Button variant="contained" onClick={submitSlot} disabled={busy}>
+          <Button variant="contained" onClick={createSlot}>
             Create slot
           </Button>
         </DialogActions>

@@ -5,17 +5,30 @@ import { api } from '../api';
 import { useAuth } from '../auth';
 import type { AdminData, BookingRequest } from '../types';
 import { formatDateTime } from '../utils';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 export default function PendingPanel({ data, onDone }: { data: AdminData; onDone: (msg: string) => void }) {
   const { email } = useAuth();
   const [processing, setProcessing] = useState<Set<string>>(new Set());
-  const pending = data.pendingRequests;
+  const [done, setDone] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    setDone((prev) => {
+      const known = new Set(data.pendingRequests.map((r) => r.request_id));
+      const next = new Set([...prev].filter((id) => known.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [data]);
+
+  const pending = data.pendingRequests.filter((r) => !done.has(r.request_id));
 
   function fire(r: BookingRequest, action: () => Promise<{ message: string }>) {
     setProcessing((prev) => new Set(prev).add(r.request_id));
     action()
-      .then((res) => onDone(res.message))
+      .then((res) => {
+        setDone((prev) => new Set(prev).add(r.request_id));
+        onDone(res.message);
+      })
       .catch((err) => onDone((err as Error).message))
       .finally(() => {
         setProcessing((prev) => {
