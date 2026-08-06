@@ -24,16 +24,25 @@ interface Props {
   slots: Slot[];
   bookings: Booking[];
   requests: BookingRequest[];
+  onRequesting: (slot: Slot) => void;
+  onRequestFailed: (slot: Slot) => void;
   onDone: (msg: string, request?: BookingRequest) => void;
   onError: (msg: string) => void;
 }
 
-export default function StudentCalendar({ slots, bookings, requests, onDone, onError }: Props) {
+export default function StudentCalendar({
+  slots,
+  bookings,
+  requests,
+  onRequesting,
+  onRequestFailed,
+  onDone,
+  onError,
+}: Props) {
   const { email } = useAuth();
   const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null);
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [selectedRequest, setSelectedRequest] = useState<BookingRequest | null>(null);
-  const [busy, setBusy] = useState(false);
 
   const events: EventInput[] = [
     ...slots.map((s) => ({
@@ -60,16 +69,19 @@ export default function StudentCalendar({ slots, bookings, requests, onDone, onE
       })),
     ...requests
       .filter((r) => r.status === 'PENDING')
-      .map((r) => ({
-        id: 'req_' + r.request_id,
-        title: r.type === 'CANCEL' ? 'Cancellation request' : 'Booking request',
-        start: r.start_time,
-        end: r.end_time,
-        backgroundColor: r.type === 'CANCEL' ? '#e11d48' : '#f59e0b',
-        borderColor: r.type === 'CANCEL' ? '#e11d48' : '#f59e0b',
-        textColor: '#ffffff',
-        extendedProps: { kind: 'request' as const },
-      })),
+      .map((r) => {
+        const requesting = r.request_id.startsWith('tmp_');
+        return {
+          id: 'req_' + r.request_id,
+          title: requesting ? 'Requesting booking…' : r.type === 'CANCEL' ? 'Cancellation request' : 'Booking request',
+          start: r.start_time,
+          end: r.end_time,
+          backgroundColor: requesting ? '#94a3b8' : r.type === 'CANCEL' ? '#e11d48' : '#f59e0b',
+          borderColor: requesting ? '#94a3b8' : r.type === 'CANCEL' ? '#e11d48' : '#f59e0b',
+          textColor: '#ffffff',
+          extendedProps: { kind: 'request' as const },
+        };
+      }),
   ];
 
   function handleEventClick(info: EventClickArg) {
@@ -83,19 +95,16 @@ export default function StudentCalendar({ slots, bookings, requests, onDone, onE
     }
   }
 
-  async function confirmBooking() {
-    if (!selectedSlot) return;
-    setBusy(true);
-    try {
-      const res = await api.requestBooking(email, selectedSlot.slot_id);
-      onDone(`Booking requested for ${formatDateTime(selectedSlot.start_time)}. Waiting for approval.`, res.request);
-      setSelectedSlot(null);
-    } catch (err) {
-      onError((err as Error).message);
-      setSelectedSlot(null);
-    } finally {
-      setBusy(false);
-    }
+  function requestBooking(slot: Slot) {
+    setSelectedSlot(null);
+    onRequesting(slot);
+    api
+      .requestBooking(email, slot.slot_id)
+      .then((res) => onDone(`Booking requested for ${formatDateTime(slot.start_time)}. Waiting for approval.`, res.request))
+      .catch((err) => {
+        onRequestFailed(slot);
+        onError((err as Error).message);
+      });
   }
 
   return (
@@ -144,7 +153,7 @@ export default function StudentCalendar({ slots, bookings, requests, onDone, onE
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setSelectedSlot(null)}>Cancel</Button>
-          <Button variant="contained" onClick={confirmBooking} disabled={busy}>
+          <Button variant="contained" onClick={() => selectedSlot && requestBooking(selectedSlot)}>
             Send request
           </Button>
         </DialogActions>

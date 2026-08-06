@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import timeGridPlugin from '@fullcalendar/timegrid';
@@ -64,6 +64,8 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
   const [selected, setSelected] = useState<SelectedEvent | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [processing, setProcessing] = useState<Record<string, string>>({});
+  const inFlight = useRef<Set<string>>(new Set());
 
   const pendingBookTimes = new Set(
     data.pendingRequests.filter((r) => r.type === 'BOOK').map((r) => r.start_time),
@@ -73,44 +75,57 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
   );
 
   const events: EventInput[] = [
-    ...data.pendingRequests.map((r) => ({
-      id: 'req_' + r.request_id,
-      title: r.type === 'BOOK' ? `Request - ${r.student_name}` : `Cancel - ${r.student_name}`,
-      start: r.start_time,
-      end: r.end_time,
-      backgroundColor: r.type === 'BOOK' ? '#f59e0b' : '#e11d48',
-      borderColor: r.type === 'BOOK' ? '#f59e0b' : '#e11d48',
-      textColor: '#ffffff',
-      extendedProps: { kind: 'request' as const },
-    })),
+    ...data.pendingRequests.map((r) => {
+      const label = processing['req_' + r.request_id];
+      return {
+        id: 'req_' + r.request_id,
+        title: label
+          ? `${label} - ${r.student_name}`
+          : r.type === 'BOOK'
+            ? `Request - ${r.student_name}`
+            : `Cancel - ${r.student_name}`,
+        start: r.start_time,
+        end: r.end_time,
+        backgroundColor: label ? '#94a3b8' : r.type === 'BOOK' ? '#f59e0b' : '#e11d48',
+        borderColor: label ? '#94a3b8' : r.type === 'BOOK' ? '#f59e0b' : '#e11d48',
+        textColor: '#ffffff',
+        extendedProps: { kind: 'request' as const },
+      };
+    }),
     ...data.availability
       .filter(
         (s) =>
           (s.status === 'AVAILABLE' || s.status === 'BLOCKED') &&
           !(s.status === 'AVAILABLE' && pendingBookTimes.has(s.start_time)),
       )
-      .map((s) => ({
-        id: 'slot_' + s.slot_id,
-        title: s.status === 'BLOCKED' ? 'Blocked' : 'Available',
-        start: s.start_time,
-        end: s.end_time,
-        backgroundColor: s.status === 'BLOCKED' ? '#6b7280' : '#22c55e',
-        borderColor: s.status === 'BLOCKED' ? '#6b7280' : '#22c55e',
-        textColor: '#ffffff',
-        extendedProps: { kind: 'slot' as const, slotStatus: s.status },
-      })),
+      .map((s) => {
+        const label = processing['slot_' + s.slot_id];
+        return {
+          id: 'slot_' + s.slot_id,
+          title: label || (s.status === 'BLOCKED' ? 'Blocked' : 'Available'),
+          start: s.start_time,
+          end: s.end_time,
+          backgroundColor: label ? '#94a3b8' : s.status === 'BLOCKED' ? '#6b7280' : '#22c55e',
+          borderColor: label ? '#94a3b8' : s.status === 'BLOCKED' ? '#6b7280' : '#22c55e',
+          textColor: '#ffffff',
+          extendedProps: { kind: 'slot' as const, slotStatus: s.status },
+        };
+      }),
     ...data.bookings
       .filter((b) => b.status === 'ACTIVE' && !pendingCancelTimes.has(b.start_time))
-      .map((b) => ({
-        id: 'bk_' + b.booking_id,
-        title: `Lesson - ${b.student_name}`,
-        start: b.start_time,
-        end: b.end_time,
-        backgroundColor: '#4f46e5',
-        borderColor: '#4f46e5',
-        textColor: '#ffffff',
-        extendedProps: { kind: 'booking' as const },
-      })),
+      .map((b) => {
+        const label = processing['bk_' + b.booking_id];
+        return {
+          id: 'bk_' + b.booking_id,
+          title: label || `Lesson - ${b.student_name}`,
+          start: b.start_time,
+          end: b.end_time,
+          backgroundColor: label ? '#94a3b8' : '#4f46e5',
+          borderColor: label ? '#94a3b8' : '#4f46e5',
+          textColor: '#ffffff',
+          extendedProps: { kind: 'booking' as const },
+        };
+      }),
   ];
 
   const selectedRequest = data.pendingRequests.find((r) => 'req_' + r.request_id === selected?.id);
@@ -141,17 +156,24 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
     setSelected({ id: info.event.id, kind: kind as SelectedEvent['kind'] });
   }
 
-  async function run(action: () => Promise<unknown>, message: string) {
-    setBusy(true);
-    try {
-      await action();
-      setSelected(null);
-      onDone(message);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusy(false);
-    }
+  function fire(action: () => Promise<unknown>, message: string, key?: string, label?: string) {
+    if (key && inFlight.current.has(key)) return;
+    if (key) inFlight.current.add(key);
+    setSelected(null);
+    if (key) setProcessing((prev) => ({ ...prev, [key]: label ?? 'Processing…' }));
+    action()
+      .then(() => onDone(message))
+      .catch((err) => setError((err as Error).message))
+      .finally(() => {
+        if (key) {
+          inFlight.current.delete(key);
+          setProcessing((prev) => {
+            const next = { ...prev };
+            delete next[key];
+            return next;
+          });
+        }
+      });
   }
 
   async function submitSlot() {
@@ -370,17 +392,27 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
                 variant="contained"
                 color="error"
                 startIcon={<CloseIcon />}
-                disabled={busy}
-                onClick={() => run(() => api.rejectRequest(email, selectedRequest.request_id), 'Request rejected')}
+                onClick={() =>
+                  fire(
+                    () => api.rejectRequest(email, selectedRequest.request_id),
+                    'Request rejected',
+                    'req_' + selectedRequest.request_id,
+                    'Rejecting…',
+                  )
+                }
               >
                 Reject
               </Button>
               <Button
                 variant="contained"
                 startIcon={<CheckIcon />}
-                disabled={busy}
                 onClick={() =>
-                  run(() => api.approveRequest(email, selectedRequest.request_id), 'Approved — calendar updated')
+                  fire(
+                    () => api.approveRequest(email, selectedRequest.request_id),
+                    'Approved — calendar updated',
+                    'req_' + selectedRequest.request_id,
+                    'Approving…',
+                  )
                 }
               >
                 Approve
@@ -392,8 +424,14 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
               {selectedSlot.status === 'BLOCKED' && (
                 <Button
                   startIcon={<LockOpenIcon />}
-                  disabled={busy}
-                  onClick={() => run(() => api.unblockSlot(email, selectedSlot.slot_id), 'Slot unblocked')}
+                  onClick={() =>
+                    fire(
+                      () => api.unblockSlot(email, selectedSlot.slot_id),
+                      'Slot unblocked',
+                      'slot_' + selectedSlot.slot_id,
+                      'Unblocking…',
+                    )
+                  }
                 >
                   Unblock
                 </Button>
@@ -401,8 +439,14 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
               <Button
                 color="error"
                 startIcon={<DeleteIcon />}
-                disabled={busy}
-                onClick={() => run(() => api.deleteSlot(email, selectedSlot.slot_id), 'Slot deleted')}
+                onClick={() =>
+                  fire(
+                    () => api.deleteSlot(email, selectedSlot.slot_id),
+                    'Slot deleted',
+                    'slot_' + selectedSlot.slot_id,
+                    'Deleting…',
+                  )
+                }
               >
                 Delete slot
               </Button>
@@ -412,9 +456,13 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
             <Button
               color="error"
               startIcon={<DeleteIcon />}
-              disabled={busy}
               onClick={() =>
-                run(() => api.cancelBooking(email, selectedBooking.booking_id), 'Lesson cancelled — calendar updated')
+                fire(
+                  () => api.cancelBooking(email, selectedBooking.booking_id),
+                  'Lesson cancelled — calendar updated',
+                  'bk_' + selectedBooking.booking_id,
+                  'Cancelling…',
+                )
               }
             >
               Cancel lesson

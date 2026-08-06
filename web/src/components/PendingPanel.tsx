@@ -1,30 +1,29 @@
-import { Alert, Box, Button, Card, CardContent, Chip, Stack, Typography } from '@mui/material';
+import { Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Stack, Typography } from '@mui/material';
 import CheckIcon from '@mui/icons-material/Check';
 import CloseIcon from '@mui/icons-material/Close';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import type { AdminData, BookingRequest } from '../types';
 import { formatDateTime } from '../utils';
+import { useState } from 'react';
 
 export default function PendingPanel({ data, onDone }: { data: AdminData; onDone: (msg: string) => void }) {
   const { email } = useAuth();
+  const [processing, setProcessing] = useState<Set<string>>(new Set());
   const pending = data.pendingRequests;
 
-  async function approve(r: BookingRequest) {
-    try {
-      onDone((await api.approveRequest(email, r.request_id)).message);
-    } catch (err) {
-      onDone((err as Error).message);
-    }
-  }
-
-  async function reject(r: BookingRequest) {
-    try {
-      await api.rejectRequest(email, r.request_id);
-      onDone('Request rejected');
-    } catch (err) {
-      onDone((err as Error).message);
-    }
+  function fire(r: BookingRequest, action: () => Promise<{ message: string }>) {
+    setProcessing((prev) => new Set(prev).add(r.request_id));
+    action()
+      .then((res) => onDone(res.message))
+      .catch((err) => onDone((err as Error).message))
+      .finally(() => {
+        setProcessing((prev) => {
+          const next = new Set(prev);
+          next.delete(r.request_id);
+          return next;
+        });
+      });
   }
 
   return (
@@ -55,17 +54,32 @@ export default function PendingPanel({ data, onDone }: { data: AdminData; onDone
                   {formatDateTime(r.start_time)}
                 </Typography>
                 <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
-                  <Button size="small" variant="contained" startIcon={<CheckIcon />} onClick={() => approve(r)}>
-                    Approve
+                  <Button
+                    size="small"
+                    variant="contained"
+                    startIcon={<CheckIcon />}
+                    disabled={processing.has(r.request_id)}
+                    onClick={() => fire(r, () => api.approveRequest(email, r.request_id))}
+                  >
+                    {processing.has(r.request_id) ? (
+                      <CircularProgress size={16} color="inherit" sx={{ mr: 0.5 }} />
+                    ) : (
+                      'Approve'
+                    )}
                   </Button>
                   <Button
                     size="small"
                     variant="outlined"
                     color="error"
                     startIcon={<CloseIcon />}
-                    onClick={() => reject(r)}
+                    disabled={processing.has(r.request_id)}
+                    onClick={() => fire(r, () => api.rejectRequest(email, r.request_id))}
                   >
-                    Reject
+                    {processing.has(r.request_id) ? (
+                      <CircularProgress size={16} color="inherit" sx={{ mr: 0.5 }} />
+                    ) : (
+                      'Reject'
+                    )}
                   </Button>
                 </Stack>
               </Box>

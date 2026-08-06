@@ -94,12 +94,43 @@ export default function StudentDashboard() {
               slots={slots}
               bookings={bookings}
               requests={requests}
+              onRequesting={(slot) => {
+                setSlots((prev) => prev.filter((s) => s.slot_id !== slot.slot_id));
+                setRequests((prev) => [
+                  {
+                    request_id: 'tmp_' + slot.slot_id,
+                    student_id: '',
+                    student_email: email,
+                    student_name: 'You',
+                    type: 'BOOK',
+                    slot_id: slot.slot_id,
+                    booking_id: '',
+                    start_time: slot.start_time,
+                    end_time: slot.end_time,
+                    status: 'PENDING',
+                    created_at: new Date().toISOString(),
+                  } as BookingRequest,
+                  ...prev,
+                ]);
+              }}
+              onRequestFailed={(slot) => {
+                setSlots((prev) => {
+                  if (prev.some((s) => s.slot_id === slot.slot_id)) return prev;
+                  return [...prev, slot].sort((a, b) => a.start_time.localeCompare(b.start_time));
+                });
+                setRequests((prev) => prev.filter((r) => r.request_id !== 'tmp_' + slot.slot_id));
+              }}
               onDone={(msg, request) => {
                 setInfo(msg);
                 setError('');
                 if (request) {
                   setSlots((prev) => prev.filter((s) => s.slot_id !== request.slot_id));
-                  setRequests((prev) => [request, ...prev.filter((r) => r.request_id !== request.request_id)]);
+                  setRequests((prev) => [
+                    request,
+                    ...prev.filter(
+                      (r) => r.request_id !== request.request_id && r.request_id !== 'tmp_' + request.slot_id,
+                    ),
+                  ]);
                 }
                 load();
               }}
