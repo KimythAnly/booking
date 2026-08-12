@@ -48,7 +48,7 @@ async function call<T>(action: string, params: Record<string, unknown> = {}): Pr
       const looksLikeLoginPage = /<html|accounts\.google\.com|<form/i.test(text.slice(0, 1000));
       throw new ApiError(
         looksLikeLoginPage
-          ? 'Google returned its sign-in page instead of data. In Apps Script: Deploy → Manage deployments → Edit → set "Who has access: Anyone" → Deploy (the URL stays the same). To verify, open the /exec URL in a private window — it should show plain text, not a login page.'
+          ? `Google returned its sign-in page instead of data from ${APPS_SCRIPT_URL}. The site is probably calling an old deployment URL. In Apps Script: Deploy → Manage deployments → copy the /exec URL of your latest "Anyone" deployment, then update the VITE_APPS_SCRIPT_URL repository variable in GitHub Settings → Secrets and variables → Actions.`
           : 'The Apps Script backend returned a non-JSON response. Redeploy it (Deploy → Manage deployments → New version) and check "Who has access" is set to "Anyone".',
       );
     }
