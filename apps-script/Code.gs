@@ -41,12 +41,18 @@ var SHEET_HEADERS = {
 
 var WEEKDAYS = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
 
+// Per-request cache for the (rarely mutated) ClassTypes sheet. Reading it once
+// per request instead of once per slot avoids hundreds of spreadsheet RPCs
+// in getAvailableSlots_ / getAdminData_. Reset at the start of every request.
+var _classTypesCache_ = null;
+
 // ============================================================
 // Entry point
 // ============================================================
 
 function doPost(e) {
   try {
+    _classTypesCache_ = null;
     var body = JSON.parse(e.postData.contents);
     var action = body.action;
     var email = String(body.email || '').toLowerCase();
@@ -338,7 +344,10 @@ function getStudentByEmail_(email) {
 // ============================================================
 
 function getClassTypes_() {
-  return readAll_(SHEET_NAMES.classTypes);
+  if (_classTypesCache_ === null) {
+    _classTypesCache_ = readAll_(SHEET_NAMES.classTypes);
+  }
+  return _classTypesCache_;
 }
 
 function activeClassTypes_() {
@@ -357,7 +366,7 @@ function ensureDefaultClassType_() {
 
 // Resolves a possibly-blank or stale class type id to a live one.
 function resolveClassType_(classTypeId) {
-  var ct = findById_(SHEET_NAMES.classTypes, 'id', classTypeId);
+  var ct = getClassTypes_().find(function (c) { return String(c.id) === String(classTypeId); });
   if (ct && isTrue_(ct.active)) return ct;
   return ensureDefaultClassType_();
 }
