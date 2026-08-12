@@ -158,22 +158,20 @@ Quota rules:
 
 ## Teacher dashboard
 
-The admin page is organized into tabs: **Calendar**, **Students**, **Class types** and **Regular classes**.
+The admin page is organized into tabs: **Calendar**, **Students** and **Class types**.
 
 - **Calendar**: the teacher sees availability, lessons, blocked slots and pending requests all on one
   calendar. Clicking an **empty time** opens a dialog to create a slot — **this day only** or
-  **weekly** — with a **class type** selector and an **"Assign to"** dropdown: **Open slot** (students
-  can request it) or a specific **student** (schedules the lesson directly, no quota needed). Clicking
-  an **event** opens an action dialog: pending requests can be **approved or rejected**, open slots
-  **deleted**, blocked slots **unblocked**, and lessons **cancelled** — cancelling a regular-class
-  occurrence offers a **"Give the student 1 quota"** checkbox (checked by default).
+  **weekly** (a regular class that repeats every week between two dates) — with a **class type**
+  selector and an **"Assign to"** dropdown: **Open slot** (students can request it) or a specific
+  **student** (schedules the lesson directly, no quota needed). Clicking an **event** opens an action
+  dialog: pending requests can be **approved or rejected**, open slots **deleted**, blocked slots
+  **unblocked**, and lessons **cancelled** — cancelling a weekly (regular) class occurrence offers a
+  **"Give the student 1 quota"** checkbox (checked by default).
 - **Students**: register/disable/enable students, and set each student's **quota per class type**
   inline on a matrix (rows = students, columns = class types, editable cells).
 - **Class types**: add and delete class types (e.g. Math, English). Deleting a type removes it from
   new scheduling and its quota column disappears.
-- **Regular classes**: create a weekly series with a class type, time and date range; pause/resume it,
-  or delete it — with the same **give 1 quota** option (checked by default) for every future occurrence
-  that is cancelled.
 
 A "Pending requests" panel on the right gives quick approve/reject buttons as well.
 
