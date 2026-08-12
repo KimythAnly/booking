@@ -1,11 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import timeGridPlugin from '@fullcalendar/timegrid';
 import interactionPlugin from '@fullcalendar/interaction';
 import type { DateSelectArg, EventClickArg, EventInput } from '@fullcalendar/core';
 import {
-  Alert,
   Box,
   Button,
   Checkbox,
@@ -28,6 +27,8 @@ import CloseIcon from '@mui/icons-material/Close';
 import LockOpenIcon from '@mui/icons-material/LockOpen';
 import { api } from '../api';
 import { useAuth } from '../auth';
+import { useMutation } from '../hooks/useMutation';
+import { useToast } from './Toast';
 import type { AdminData } from '../types';
 import { WEEKDAYS, formatDate, formatDateTime } from '../utils';
 
@@ -69,14 +70,13 @@ interface CreatingSlot {
 
 export default function CalendarView({ data, onDone }: { data: AdminData; onDone: (msg: string) => void }) {
   const { email } = useAuth();
+  const toast = useToast();
+  const mutate = useMutation();
   const [newSlot, setNewSlot] = useState<NewSlot | null>(null);
   const [selected, setSelected] = useState<SelectedEvent | null>(null);
-  const [error, setError] = useState('');
-  const [processing, setProcessing] = useState<Record<string, string>>({});
   const [done, setDone] = useState<Set<string>>(new Set());
   const [creating, setCreating] = useState<CreatingSlot[]>([]);
   const [giveQuota, setGiveQuota] = useState(true);
-  const inFlight = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const known = new Set([
@@ -106,23 +106,19 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
   const events: EventInput[] = [
     ...data.pendingRequests
       .filter((r) => !done.has('req_' + r.request_id))
-      .map((r) => {
-        const label = processing['req_' + r.request_id];
-        return {
-          id: 'req_' + r.request_id,
-          title: label
-            ? `${label} - ${r.student_name}`
-            : r.type === 'BOOK'
-              ? `Request - ${r.student_name} (${r.class_type_name || 'General'})`
-              : `Cancel - ${r.student_name} (${r.class_type_name || 'General'})`,
-          start: r.start_time,
-          end: r.end_time,
-          backgroundColor: label ? '#94a3b8' : r.type === 'BOOK' ? '#f59e0b' : '#e11d48',
-          borderColor: label ? '#94a3b8' : r.type === 'BOOK' ? '#f59e0b' : '#e11d48',
-          textColor: '#ffffff',
-          extendedProps: { kind: 'request' as const },
-        };
-      }),
+      .map((r) => ({
+        id: 'req_' + r.request_id,
+        title:
+          r.type === 'BOOK'
+            ? `Request - ${r.student_name} (${r.class_type_name || 'General'})`
+            : `Cancel - ${r.student_name} (${r.class_type_name || 'General'})`,
+        start: r.start_time,
+        end: r.end_time,
+        backgroundColor: r.type === 'BOOK' ? '#f59e0b' : '#e11d48',
+        borderColor: r.type === 'BOOK' ? '#f59e0b' : '#e11d48',
+        textColor: '#ffffff',
+        extendedProps: { kind: 'request' as const },
+      })),
     ...data.availability
       .filter(
         (s) =>
@@ -130,34 +126,28 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
           !(s.status === 'AVAILABLE' && pendingBookTimes.has(s.start_time)) &&
           !done.has('slot_' + s.slot_id),
       )
-      .map((s) => {
-        const label = processing['slot_' + s.slot_id];
-        return {
-          id: 'slot_' + s.slot_id,
-          title: label || (s.status === 'BLOCKED' ? 'Blocked' : `Available (${s.class_type_name || 'General'})`),
-          start: s.start_time,
-          end: s.end_time,
-          backgroundColor: label ? '#94a3b8' : s.status === 'BLOCKED' ? '#6b7280' : '#22c55e',
-          borderColor: label ? '#94a3b8' : s.status === 'BLOCKED' ? '#6b7280' : '#22c55e',
-          textColor: '#ffffff',
-          extendedProps: { kind: 'slot' as const, slotStatus: s.status },
-        };
-      }),
+      .map((s) => ({
+        id: 'slot_' + s.slot_id,
+        title: s.status === 'BLOCKED' ? 'Blocked' : `Available (${s.class_type_name || 'General'})`,
+        start: s.start_time,
+        end: s.end_time,
+        backgroundColor: s.status === 'BLOCKED' ? '#6b7280' : '#22c55e',
+        borderColor: s.status === 'BLOCKED' ? '#6b7280' : '#22c55e',
+        textColor: '#ffffff',
+        extendedProps: { kind: 'slot' as const, slotStatus: s.status },
+      })),
     ...data.bookings
       .filter((b) => b.status === 'ACTIVE' && !pendingCancelTimes.has(b.start_time) && !done.has('bk_' + b.booking_id))
-      .map((b) => {
-        const label = processing['bk_' + b.booking_id];
-        return {
-          id: 'bk_' + b.booking_id,
-          title: label || `Lesson - ${b.student_name} (${b.class_type_name || 'General'})`,
-          start: b.start_time,
-          end: b.end_time,
-          backgroundColor: label ? '#94a3b8' : '#4f46e5',
-          borderColor: label ? '#94a3b8' : '#4f46e5',
-          textColor: '#ffffff',
-          extendedProps: { kind: 'booking' as const },
-        };
-      }),
+      .map((b) => ({
+        id: 'bk_' + b.booking_id,
+        title: `Lesson - ${b.student_name} (${b.class_type_name || 'General'})`,
+        start: b.start_time,
+        end: b.end_time,
+        backgroundColor: '#4f46e5',
+        borderColor: '#4f46e5',
+        textColor: '#ffffff',
+        extendedProps: { kind: 'booking' as const },
+      })),
     ...creating.map((c) => ({
       id: 'creating_' + c.id,
       title: c.resolved ? 'Available…' : 'Creating…',
@@ -181,7 +171,6 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
     const start = new Date(info.startStr);
     const end = new Date(info.endStr);
     if (end.getTime() - start.getTime() < 60 * 60000) end.setTime(start.getTime() + 60 * 60000);
-    setError('');
     setNewSlot({
       weekdayIndex: start.getDay(),
       startInput: toInput(start),
@@ -197,32 +186,23 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
   function handleEventClick(info: EventClickArg) {
     const kind = (info.event.extendedProps as { kind?: string }).kind ?? 'booking';
     if (kind === 'creating') return;
-    setError('');
     if (kind === 'booking') setGiveQuota(true);
     setSelected({ id: info.event.id, kind: kind as SelectedEvent['kind'] });
   }
 
-  function fire(action: () => Promise<unknown>, message: string, key?: string, label?: string) {
-    if (key && inFlight.current.has(key)) return;
-    if (key) inFlight.current.add(key);
+  function fire(key: string, action: () => Promise<unknown>, successMsg: string) {
     setSelected(null);
-    if (key) setProcessing((prev) => ({ ...prev, [key]: label ?? 'Processing…' }));
-    action()
-      .then(() => {
-        if (key) setDone((prev) => new Set(prev).add(key));
-        onDone(message);
-      })
-      .catch((err) => setError((err as Error).message))
-      .finally(() => {
-        if (key) {
-          inFlight.current.delete(key);
-          setProcessing((prev) => {
-            const next = { ...prev };
-            delete next[key];
-            return next;
-          });
-        }
-      });
+    setDone((prev) => new Set(prev).add(key));
+    mutate({
+      action,
+      rollback: () =>
+        setDone((prev) => {
+          const next = new Set(prev);
+          next.delete(key);
+          return next;
+        }),
+      onSuccess: () => onDone(successMsg),
+    });
   }
 
   function createSlot() {
@@ -241,14 +221,12 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
         }
       }
     } catch (err) {
-      setError((err as Error).message);
+      toast.error((err as Error).message);
       return;
     }
     const slot = newSlot;
     const placeholder: CreatingSlot = { id: 'tmp_' + Date.now(), start: toIso(start), end: toIso(end) };
-    setCreating((prev) => [...prev, placeholder]);
     setNewSlot(null);
-    setError('');
 
     const action = (): Promise<{ generated?: number }> => {
       if (slot.mode === 'single') {
@@ -271,8 +249,11 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
         .then((res) => ({ generated: res.generated }));
     };
 
-    action()
-      .then((res) => {
+    mutate({
+      optimistic: () => setCreating((prev) => [...prev, placeholder]),
+      rollback: () => setCreating((prev) => prev.filter((c) => c.id !== placeholder.id)),
+      action,
+      onSuccess: (res) => {
         setCreating((prev) => prev.map((c) => (c.id === placeholder.id ? { ...c, resolved: true } : c)));
         onDone(
           slot.mode === 'single'
@@ -283,11 +264,8 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
               ? `Weekly lessons scheduled (${res.generated ?? 0})`
               : `Weekly availability created (${res.generated ?? 0} slots)`,
         );
-      })
-      .catch((err) => {
-        setCreating((prev) => prev.filter((c) => c.id !== placeholder.id));
-        setError((err as Error).message);
-      });
+      },
+    });
   }
 
   return (
@@ -336,11 +314,6 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                 {WEEKDAYS[newSlot.weekdayIndex]} · {formatDate(newSlot.startInput)}
               </Typography>
-              {error && (
-                <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
-                  {error}
-                </Alert>
-              )}
               <RadioGroup
                 row
                 value={newSlot.mode}
@@ -438,11 +411,6 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
       <Dialog open={!!selected} onClose={() => setSelected(null)} maxWidth="sm" fullWidth>
         <DialogTitle>{selected?.kind === 'request' ? 'Pending request' : selected?.kind === 'slot' ? 'Availability slot' : 'Approved lesson'}</DialogTitle>
         <DialogContent>
-          {error && (
-            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
-              {error}
-            </Alert>
-          )}
           {selected?.kind === 'request' && selectedRequest && (
             <>
               <Typography>
@@ -495,10 +463,9 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
                 startIcon={<CloseIcon />}
                 onClick={() =>
                   fire(
+                    'req_' + selectedRequest.request_id,
                     () => api.rejectRequest(email, selectedRequest.request_id),
                     'Request rejected',
-                    'req_' + selectedRequest.request_id,
-                    'Rejecting…',
                   )
                 }
               >
@@ -509,10 +476,9 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
                 startIcon={<CheckIcon />}
                 onClick={() =>
                   fire(
+                    'req_' + selectedRequest.request_id,
                     () => api.approveRequest(email, selectedRequest.request_id),
                     'Approved — calendar updated',
-                    'req_' + selectedRequest.request_id,
-                    'Approving…',
                   )
                 }
               >
@@ -527,10 +493,9 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
                   startIcon={<LockOpenIcon />}
                   onClick={() =>
                     fire(
+                      'slot_' + selectedSlot.slot_id,
                       () => api.unblockSlot(email, selectedSlot.slot_id),
                       'Slot unblocked',
-                      'slot_' + selectedSlot.slot_id,
-                      'Unblocking…',
                     )
                   }
                 >
@@ -542,10 +507,9 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
                 startIcon={<DeleteIcon />}
                 onClick={() =>
                   fire(
+                    'slot_' + selectedSlot.slot_id,
                     () => api.deleteSlot(email, selectedSlot.slot_id),
                     'Slot deleted',
-                    'slot_' + selectedSlot.slot_id,
-                    'Deleting…',
                   )
                 }
               >
@@ -559,10 +523,9 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
               startIcon={<DeleteIcon />}
               onClick={() =>
                 fire(
+                  'bk_' + selectedBooking.booking_id,
                   () => api.cancelBooking(email, selectedBooking.booking_id, giveQuota),
                   'Lesson cancelled — calendar updated',
-                  'bk_' + selectedBooking.booking_id,
-                  'Cancelling…',
                 )
               }
             >

@@ -16,6 +16,7 @@ import {
 import RefreshIcon from '@mui/icons-material/Refresh';
 import Layout from '../components/Layout';
 import StudentCalendar from '../components/StudentCalendar';
+import { useToast } from '../components/Toast';
 import { useAuth } from '../auth';
 import { api } from '../api';
 import type { Booking, BookingRequest, ClassType, Slot, StudentQuota } from '../types';
@@ -25,13 +26,13 @@ const REFRESH_MS = 30000;
 
 export default function StudentDashboard() {
   const { email } = useAuth();
+  const toast = useToast();
   const [slots, setSlots] = useState<Slot[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [requests, setRequests] = useState<BookingRequest[]>([]);
   const [classTypes, setClassTypes] = useState<ClassType[]>([]);
   const [quotas, setQuotas] = useState<StudentQuota[]>([]);
   const [error, setError] = useState('');
-  const [info, setInfo] = useState('');
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
@@ -79,11 +80,6 @@ export default function StudentDashboard() {
           {error}
         </Alert>
       )}
-      {info && (
-        <Alert severity="success" sx={{ mb: 2 }} onClose={() => setInfo('')}>
-          {info}
-        </Alert>
-      )}
 
       {loading ? (
         <Stack spacing={2} sx={{ py: 2 }}>
@@ -119,6 +115,11 @@ export default function StudentDashboard() {
                   } as BookingRequest,
                   ...prev,
                 ]);
+                setQuotas((prev) =>
+                  prev.map((q) =>
+                    q.class_type_id === slot.class_type_id ? { ...q, quota: Math.max(0, Number(q.quota) - 1) } : q,
+                  ),
+                );
               }}
               onRequestFailed={(slot) => {
                 setSlots((prev) => {
@@ -126,10 +127,14 @@ export default function StudentDashboard() {
                   return [...prev, slot].sort((a, b) => a.start_time.localeCompare(b.start_time));
                 });
                 setRequests((prev) => prev.filter((r) => r.request_id !== 'tmp_' + slot.slot_id));
+                setQuotas((prev) =>
+                  prev.map((q) =>
+                    q.class_type_id === slot.class_type_id ? { ...q, quota: Number(q.quota) + 1 } : q,
+                  ),
+                );
               }}
               onDone={(msg, request) => {
-                setInfo(msg);
-                setError('');
+                toast.success(msg);
                 if (request) {
                   setSlots((prev) => prev.filter((s) => s.slot_id !== request.slot_id));
                   setRequests((prev) => [
@@ -141,7 +146,6 @@ export default function StudentDashboard() {
                 }
                 load();
               }}
-              onError={(msg) => setError(msg)}
             />
           </Box>
           <Box sx={{ width: { xs: '100%', lg: 340 }, flexShrink: 0 }}>

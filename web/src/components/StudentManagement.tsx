@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import {
-  Alert,
   Box,
   Button,
   Chip,
@@ -17,38 +16,56 @@ import {
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
 import { api } from '../api';
 import { useAuth } from '../auth';
+import { useMutation } from '../hooks/useMutation';
+import { useToast } from './Toast';
 import type { AdminData, Student } from '../types';
 
 export default function StudentManagement({ data, onDone }: { data: AdminData; onDone: (msg: string) => void }) {
   const { email } = useAuth();
+  const toast = useToast();
+  const mutate = useMutation();
   const [name, setName] = useState('');
   const [studentEmail, setStudentEmail] = useState('');
-  const [error, setError] = useState('');
+  const [tempStudents, setTempStudents] = useState<Student[]>([]);
+  const [statusOverrides, setStatusOverrides] = useState<Record<string, string>>({});
 
-  async function addStudent() {
-    try {
-      await api.addStudent(email, name, studentEmail);
-      onDone('Student added');
-      setName('');
-      setStudentEmail('');
-      setError('');
-    } catch (err) {
-      setError((err as Error).message);
+  const isActive = (s: Student) => String(statusOverrides[s.student_id] ?? s.active).toUpperCase() === 'TRUE';
+  const students = [...tempStudents, ...data.students];
+
+  function addStudent() {
+    const trimmedName = name.trim();
+    const trimmedEmail = studentEmail.trim().toLowerCase();
+    if (!trimmedName || !trimmedEmail) {
+      toast.error('Name and email are required');
+      return;
     }
+    const temp: Student = { student_id: 'tmp_' + Date.now(), name: trimmedName, email: trimmedEmail, active: 'TRUE' };
+    setName('');
+    setStudentEmail('');
+    mutate({
+      optimistic: () => setTempStudents((prev) => [...prev, temp]),
+      rollback: () => setTempStudents((prev) => prev.filter((s) => s.student_id !== temp.student_id)),
+      action: () => api.addStudent(email, trimmedName, trimmedEmail),
+      onSuccess: () => {
+        setTempStudents((prev) => prev.filter((s) => s.student_id !== temp.student_id));
+        onDone('Student added');
+      },
+    });
   }
 
-  async function toggleActive(s: Student) {
-    try {
-      if (String(s.active).toUpperCase() === 'TRUE') {
-        await api.disableStudent(email, s.student_id);
-        onDone(`${s.name} disabled`);
-      } else {
-        await api.enableStudent(email, s.student_id);
-        onDone(`${s.name} enabled`);
-      }
-    } catch (err) {
-      setError((err as Error).message);
-    }
+  function toggleActive(s: Student) {
+    const next = isActive(s) ? 'FALSE' : 'TRUE';
+    setStatusOverrides((prev) => ({ ...prev, [s.student_id]: next }));
+    mutate({
+      action: () => (next === 'TRUE' ? api.enableStudent(email, s.student_id) : api.disableStudent(email, s.student_id)),
+      rollback: () =>
+        setStatusOverrides((prev) => {
+          const rest = { ...prev };
+          delete rest[s.student_id];
+          return rest;
+        }),
+      onSuccess: () => onDone(`${s.name} ${next === 'TRUE' ? 'enabled' : 'disabled'}`),
+    });
   }
 
   const activeTypes = data.classTypes.filter((c) => String(c.active).toUpperCase() === 'TRUE');
@@ -59,12 +76,6 @@ export default function StudentManagement({ data, onDone }: { data: AdminData; o
 
   return (
     <Box>
-      {error && (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
-          {error}
-        </Alert>
-      )}
-
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mb: 3 }}>
         <TextField label="Full name" size="small" value={name} onChange={(e) => setName(e.target.value)} sx={{ width: 200 }} />
         <TextField
@@ -90,9 +101,9 @@ export default function StudentManagement({ data, onDone }: { data: AdminData; o
       </Typography>
 
       {activeTypes.length === 0 ? (
-        <Alert severity="info" sx={{ mb: 2 }}>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           Add a class type on the "Class types" tab to start setting quotas.
-        </Alert>
+        </Typography>
       ) : (
         <TableContainer sx={{ boxShadow: 1, borderRadius: 2, bgcolor: 'background.paper', mb: 3 }}>
           <Table size="small">
@@ -107,7 +118,7 @@ export default function StudentManagement({ data, onDone }: { data: AdminData; o
               </TableRow>
             </TableHead>
             <TableBody>
-              {data.students.map((s) => (
+              {students.map((s) => (
                 <TableRow key={s.student_id} hover>
                   <TableCell>{s.name}</TableCell>
                   {activeTypes.map((ct) => (
@@ -115,17 +126,10 @@ export default function StudentManagement({ data, onDone }: { data: AdminData; o
                       <QuotaCell
                         key={ct.id}
                         value={quotaByCell[`${s.student_id}|${ct.id}`] ?? 0}
-                        disabled={String(s.active).toUpperCase() !== 'TRUE'}
-                        onSave={(quota) => {
-                          try {
-                            api
-                              .setStudentQuota(email, s.student_id, ct.id, quota)
-                              .then(() => onDone(`Quota updated for ${s.name}`))
-                              .catch((err) => setError((err as Error).message));
-                          } catch (err) {
-                            setError((err as Error).message);
-                          }
-                        }}
+                        disabled={!isActive(s)}
+                        onSave={(quota) =>
+                          api.setStudentQuota(email, s.student_id, ct.id, quota).then(() => onDone(`Quota updated for ${s.name}`))
+                        }
                       />
                     </TableCell>
                   ))}
@@ -147,20 +151,20 @@ export default function StudentManagement({ data, onDone }: { data: AdminData; o
             </TableRow>
           </TableHead>
           <TableBody>
-            {data.students.map((s) => (
+            {students.map((s) => (
               <TableRow key={s.student_id} hover>
                 <TableCell>{s.name}</TableCell>
                 <TableCell>{s.email}</TableCell>
                 <TableCell>
                   <Chip
                     size="small"
-                    color={String(s.active).toUpperCase() === 'TRUE' ? 'success' : 'default'}
-                    label={String(s.active).toUpperCase() === 'TRUE' ? 'Active' : 'Disabled'}
+                    color={isActive(s) ? 'success' : 'default'}
+                    label={isActive(s) ? 'Active' : 'Disabled'}
                   />
                 </TableCell>
                 <TableCell align="right">
-                  <Button size="small" color={String(s.active).toUpperCase() === 'TRUE' ? 'error' : 'primary'} onClick={() => toggleActive(s)}>
-                    {String(s.active).toUpperCase() === 'TRUE' ? 'Disable' : 'Enable'}
+                  <Button size="small" color={isActive(s) ? 'error' : 'primary'} onClick={() => toggleActive(s)}>
+                    {isActive(s) ? 'Disable' : 'Enable'}
                   </Button>
                 </TableCell>
               </TableRow>
@@ -179,9 +183,10 @@ function QuotaCell({
 }: {
   value: number;
   disabled: boolean;
-  onSave: (quota: number) => void;
+  onSave: (quota: number) => Promise<void>;
 }) {
   const [draft, setDraft] = useState<string>(String(value));
+  const toast = useToast();
   return (
     <TextField
       type="number"
@@ -193,7 +198,13 @@ function QuotaCell({
       onBlur={() => {
         const n = Math.max(0, Math.floor(Number(draft) || 0));
         setDraft(String(n));
-        if (n !== value) onSave(n);
+        if (n !== value) {
+          const prev = String(value);
+          onSave(n).catch((err) => {
+            setDraft(prev);
+            toast.error(`操作失敗 — ${(err as Error).message}`);
+          });
+        }
       }}
       onKeyDown={(e) => {
         if (e.key === 'Enter') (e.target as HTMLInputElement).blur();

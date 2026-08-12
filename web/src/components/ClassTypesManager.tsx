@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import {
-  Alert,
   Box,
   Button,
   Chip,
@@ -23,6 +22,8 @@ import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { api } from '../api';
 import { useAuth } from '../auth';
+import { useMutation } from '../hooks/useMutation';
+import { useToast } from './Toast';
 import type { ClassType } from '../types';
 
 export default function ClassTypesManager({
@@ -33,50 +34,53 @@ export default function ClassTypesManager({
   onDone: (msg: string) => void;
 }) {
   const { email } = useAuth();
+  const toast = useToast();
+  const mutate = useMutation();
   const [name, setName] = useState('');
-  const [error, setError] = useState('');
+  const [tempTypes, setTempTypes] = useState<ClassType[]>([]);
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [toDelete, setToDelete] = useState<ClassType | null>(null);
-  const [busy, setBusy] = useState(false);
 
-  async function add() {
-    setBusy(true);
-    try {
-      await api.addClassType(email, name);
-      onDone(`Class type "${name.trim()}" added`);
-      setName('');
-      setError('');
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusy(false);
+  const visible = [...tempTypes, ...classTypes].filter((ct) => !hidden.has(ct.id));
+
+  function add() {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      toast.error('Class type name is required');
+      return;
     }
+    const temp: ClassType = { id: 'tmp_' + Date.now(), name: trimmed, active: 'TRUE' };
+    setName('');
+    mutate({
+      optimistic: () => setTempTypes((prev) => [...prev, temp]),
+      rollback: () => setTempTypes((prev) => prev.filter((t) => t.id !== temp.id)),
+      action: () => api.addClassType(email, trimmed),
+      onSuccess: () => {
+        setTempTypes((prev) => prev.filter((t) => t.id !== temp.id));
+        onDone(`Class type "${trimmed}" added`);
+      },
+    });
   }
 
-  async function remove() {
+  function remove() {
     if (!toDelete) return;
-    setBusy(true);
-    try {
-      await api.deleteClassType(email, toDelete.id);
-      onDone(`Class type "${toDelete.name}" deleted`);
-      setToDelete(null);
-      setError('');
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusy(false);
-    }
+    const target = toDelete;
+    setToDelete(null);
+    setHidden((prev) => new Set(prev).add(target.id));
+    mutate({
+      action: () => api.deleteClassType(email, target.id),
+      rollback: () =>
+        setHidden((prev) => {
+          const next = new Set(prev);
+          next.delete(target.id);
+          return next;
+        }),
+      onSuccess: () => onDone(`Class type "${target.name}" deleted`),
+    });
   }
-
-  const active = classTypes.filter((c) => String(c.active).toUpperCase() === 'TRUE');
 
   return (
     <Box>
-      {error && (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
-          {error}
-        </Alert>
-      )}
-
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         Class types define the subjects students can book (e.g. Math, English). Each class you create on the
         calendar belongs to a type, and each student's booking quota is tracked per type.
@@ -93,18 +97,15 @@ export default function ClassTypesManager({
           }}
           sx={{ width: 260 }}
         />
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={add}
-          disabled={busy || !name.trim()}
-        >
+        <Button variant="contained" startIcon={<AddIcon />} onClick={add} disabled={!name.trim()}>
           Add type
         </Button>
       </Stack>
 
-      {active.length === 0 ? (
-        <Alert severity="info">No class types yet. Add one above — a default "General" type is used until then.</Alert>
+      {visible.length === 0 ? (
+        <Typography variant="body2" color="text.secondary">
+          No class types yet. Add one above — a default "General" type is used until then.
+        </Typography>
       ) : (
         <TableContainer sx={{ boxShadow: 1, borderRadius: 2, bgcolor: 'background.paper', maxWidth: 520 }}>
           <Table size="small">
@@ -116,7 +117,7 @@ export default function ClassTypesManager({
               </TableRow>
             </TableHead>
             <TableBody>
-              {classTypes.map((ct) => (
+              {visible.map((ct) => (
                 <TableRow key={ct.id} hover>
                   <TableCell>{ct.name}</TableCell>
                   <TableCell>
@@ -127,13 +128,7 @@ export default function ClassTypesManager({
                     />
                   </TableCell>
                   <TableCell align="right">
-                    <Button
-                      size="small"
-                      color="error"
-                      startIcon={<DeleteIcon />}
-                      disabled={busy}
-                      onClick={() => setToDelete(ct)}
-                    >
+                    <Button size="small" color="error" startIcon={<DeleteIcon />} onClick={() => setToDelete(ct)}>
                       Delete
                     </Button>
                   </TableCell>
@@ -154,7 +149,7 @@ export default function ClassTypesManager({
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setToDelete(null)}>Cancel</Button>
-          <Button color="error" variant="contained" onClick={remove} disabled={busy}>
+          <Button color="error" variant="contained" onClick={remove}>
             Delete
           </Button>
         </DialogActions>

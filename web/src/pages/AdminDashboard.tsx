@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Alert, Box, Button, Skeleton, Stack, Tabs, Tab, Typography } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import Layout from '../components/Layout';
+import { useToast } from '../components/Toast';
 import { useAuth } from '../auth';
 import { api } from '../api';
 import type { AdminData } from '../types';
@@ -12,10 +13,10 @@ import ClassTypesManager from '../components/ClassTypesManager';
 
 export default function AdminDashboard() {
   const { email } = useAuth();
+  const toast = useToast();
   const [tab, setTab] = useState(0);
   const [data, setData] = useState<AdminData | null>(null);
   const [error, setError] = useState('');
-  const [info, setInfo] = useState('');
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
@@ -34,7 +35,7 @@ export default function AdminDashboard() {
   }, [load]);
 
   const notify = (message: string) => {
-    setInfo(message);
+    toast.success(message);
     load();
   };
 
@@ -54,11 +55,6 @@ export default function AdminDashboard() {
       {error && (
         <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
           {error}
-        </Alert>
-      )}
-      {info && (
-        <Alert severity="success" sx={{ mb: 2 }} onClose={() => setInfo('')}>
-          {info}
         </Alert>
       )}
 

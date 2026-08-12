@@ -17,6 +17,7 @@ import {
 } from '@mui/material';
 import { api } from '../api';
 import { useAuth } from '../auth';
+import { useMutation } from '../hooks/useMutation';
 import type { Booking, BookingRequest, Slot, StudentQuota } from '../types';
 import { formatDateTime } from '../utils';
 
@@ -28,7 +29,6 @@ interface Props {
   onRequesting: (slot: Slot) => void;
   onRequestFailed: (slot: Slot) => void;
   onDone: (msg: string, request?: BookingRequest) => void;
-  onError: (msg: string) => void;
 }
 
 export default function StudentCalendar({
@@ -39,9 +39,9 @@ export default function StudentCalendar({
   onRequesting,
   onRequestFailed,
   onDone,
-  onError,
 }: Props) {
   const { email } = useAuth();
+  const mutate = useMutation();
   const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null);
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [selectedRequest, setSelectedRequest] = useState<BookingRequest | null>(null);
@@ -110,14 +110,13 @@ export default function StudentCalendar({
 
   function requestBooking(slot: Slot) {
     setSelectedSlot(null);
-    onRequesting(slot);
-    api
-      .requestBooking(email, slot.slot_id)
-      .then((res) => onDone(`Booking requested for ${formatDateTime(slot.start_time)}. Waiting for approval.`, res.request))
-      .catch((err) => {
-        onRequestFailed(slot);
-        onError((err as Error).message);
-      });
+    mutate({
+      optimistic: () => onRequesting(slot),
+      rollback: () => onRequestFailed(slot),
+      action: () => api.requestBooking(email, slot.slot_id),
+      onSuccess: (res) =>
+        onDone(`Booking requested for ${formatDateTime(slot.start_time)}. Waiting for approval.`, res.request),
+    });
   }
 
   return (

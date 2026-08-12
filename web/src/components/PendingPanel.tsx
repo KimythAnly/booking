@@ -1,42 +1,32 @@
-import { Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Stack, Typography } from '@mui/material';
+import { Alert, Box, Button, Card, CardContent, Chip, Stack, Typography } from '@mui/material';
 import CheckIcon from '@mui/icons-material/Check';
 import CloseIcon from '@mui/icons-material/Close';
 import { api } from '../api';
 import { useAuth } from '../auth';
+import { useMutation } from '../hooks/useMutation';
 import type { AdminData, BookingRequest } from '../types';
 import { formatDateTime } from '../utils';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
 export default function PendingPanel({ data, onDone }: { data: AdminData; onDone: (msg: string) => void }) {
   const { email } = useAuth();
-  const [processing, setProcessing] = useState<Set<string>>(new Set());
-  const [done, setDone] = useState<Set<string>>(new Set());
+  const mutate = useMutation();
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
 
-  useEffect(() => {
-    setDone((prev) => {
-      const known = new Set(data.pendingRequests.map((r) => r.request_id));
-      const next = new Set([...prev].filter((id) => known.has(id)));
-      return next.size === prev.size ? prev : next;
-    });
-  }, [data]);
+  const pending = data.pendingRequests.filter((r) => !hidden.has(r.request_id));
 
-  const pending = data.pendingRequests.filter((r) => !done.has(r.request_id));
-
-  function fire(r: BookingRequest, action: () => Promise<{ message: string }>) {
-    setProcessing((prev) => new Set(prev).add(r.request_id));
-    action()
-      .then((res) => {
-        setDone((prev) => new Set(prev).add(r.request_id));
-        onDone(res.message);
-      })
-      .catch((err) => onDone((err as Error).message))
-      .finally(() => {
-        setProcessing((prev) => {
+  function fire(r: BookingRequest, action: () => Promise<unknown>, successMsg: string) {
+    setHidden((prev) => new Set(prev).add(r.request_id));
+    mutate({
+      action,
+      rollback: () =>
+        setHidden((prev) => {
           const next = new Set(prev);
           next.delete(r.request_id);
           return next;
-        });
-      });
+        }),
+      onSuccess: () => onDone(successMsg),
+    });
   }
 
   return (
@@ -74,28 +64,18 @@ export default function PendingPanel({ data, onDone }: { data: AdminData; onDone
                     size="small"
                     variant="contained"
                     startIcon={<CheckIcon />}
-                    disabled={processing.has(r.request_id)}
-                    onClick={() => fire(r, () => api.approveRequest(email, r.request_id))}
+                    onClick={() => fire(r, () => api.approveRequest(email, r.request_id), 'Approved — calendar updated')}
                   >
-                    {processing.has(r.request_id) ? (
-                      <CircularProgress size={16} color="inherit" sx={{ mr: 0.5 }} />
-                    ) : (
-                      'Approve'
-                    )}
+                    Approve
                   </Button>
                   <Button
                     size="small"
                     variant="outlined"
                     color="error"
                     startIcon={<CloseIcon />}
-                    disabled={processing.has(r.request_id)}
-                    onClick={() => fire(r, () => api.rejectRequest(email, r.request_id))}
+                    onClick={() => fire(r, () => api.rejectRequest(email, r.request_id), 'Request rejected')}
                   >
-                    {processing.has(r.request_id) ? (
-                      <CircularProgress size={16} color="inherit" sx={{ mr: 0.5 }} />
-                    ) : (
-                      'Reject'
-                    )}
+                    Reject
                   </Button>
                 </Stack>
               </Box>
