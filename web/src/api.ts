@@ -43,7 +43,14 @@ async function call<T>(action: string, params: Record<string, unknown> = {}): Pr
     try {
       data = JSON.parse(text);
     } catch {
-      throw new ApiError('The Apps Script backend returned a non-JSON response (did you deploy it and allow "Anyone with a Google account"?).');
+      // "Anyone with a Google account" deployments redirect unauthenticated
+      // cross-origin requests to the Google sign-in page (HTML, not JSON).
+      const looksLikeLoginPage = /<html|accounts\.google\.com|<form/i.test(text.slice(0, 1000));
+      throw new ApiError(
+        looksLikeLoginPage
+          ? 'Google returned its sign-in page instead of data. The Apps Script deployment must be set to "Who has access: Anyone" (not "Anyone with a Google account"), then create a new deployment and copy the new URL into .env.local.'
+          : 'The Apps Script backend returned a non-JSON response. Redeploy it (Deploy → Manage deployments → New version) and check "Who has access" is set to "Anyone".',
+      );
     }
     if (data.error) throw new ApiError(data.error);
     return data as T;

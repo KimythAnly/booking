@@ -12,7 +12,7 @@ import {
   Stack,
 } from '@mui/material';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
-import { useAuth, decodeJwt } from '../auth';
+import { useAuth } from '../auth';
 import { api } from '../api';
 
 declare global {
@@ -26,6 +26,18 @@ declare global {
       };
     };
   }
+}
+
+function decodeJwt(token: string): Record<string, unknown> {
+  const base64Url = token.split('.')[1];
+  const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+  const json = decodeURIComponent(
+    atob(base64)
+      .split('')
+      .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+      .join(''),
+  );
+  return JSON.parse(json);
 }
 
 export default function LoginPage() {

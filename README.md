@@ -54,7 +54,7 @@ booking/
 5. Authorize the required scopes (Sheets, Calendar, userinfo.email) when prompted.
 6. **Deploy → New deployment → Web app**:
    - **Execute as:** Me
-   - **Who has access:** Anyone with a Google account
+   - **Who has access:** **Anyone** (important: do *not* pick "Anyone with a Google account" — that setting makes Google return its sign-in page HTML instead of JSON on the first request from the site, causing a "non-JSON response" login error that only works after refreshing)
    - Copy the **Web app URL** (`https://script.google.com/macros/s/.../exec`).
 
 > Updating later: when a new backend version ships, **replace only `Code.gs`** — leave `Config.gs`
