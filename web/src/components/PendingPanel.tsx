@@ -8,7 +8,15 @@ import type { AdminData, BookingRequest } from '../types';
 import { formatDateTime } from '../utils';
 import { useState } from 'react';
 
-export default function PendingPanel({ data, onDone }: { data: AdminData; onDone: (msg: string) => void }) {
+export default function PendingPanel({
+  data,
+  onDone,
+  onRefresh,
+}: {
+  data: AdminData;
+  onDone: (msg: string) => void;
+  onRefresh: () => void;
+}) {
   const { email } = useAuth();
   const mutate = useMutation();
   const [hidden, setHidden] = useState<Set<string>>(new Set());
@@ -17,14 +25,19 @@ export default function PendingPanel({ data, onDone }: { data: AdminData; onDone
 
   function fire(r: BookingRequest, action: () => Promise<unknown>, successMsg: string) {
     setHidden((prev) => new Set(prev).add(r.request_id));
+    const unhide = () =>
+      setHidden((prev) => {
+        const next = new Set(prev);
+        next.delete(r.request_id);
+        return next;
+      });
     mutate({
       action,
-      rollback: () =>
-        setHidden((prev) => {
-          const next = new Set(prev);
-          next.delete(r.request_id);
-          return next;
-        }),
+      rollback: unhide,
+      reconcile: () => {
+        unhide();
+        onRefresh();
+      },
       onSuccess: () => onDone(successMsg),
     });
   }

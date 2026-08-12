@@ -75,15 +75,15 @@ export default function AdminDashboard() {
           {tab === 0 && (
             <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2} alignItems="flex-start">
               <Box sx={{ flex: 1, minWidth: 0 }}>
-                <CalendarView data={data} onDone={notify} />
+                <CalendarView data={data} onDone={notify} onRefresh={load} />
               </Box>
               <Box sx={{ width: { xs: '100%', lg: 340 }, flexShrink: 0 }}>
-                <PendingPanel data={data} onDone={notify} />
+                <PendingPanel data={data} onDone={notify} onRefresh={load} />
               </Box>
             </Stack>
           )}
-          {tab === 1 && <StudentManagement data={data} onDone={notify} />}
-          {tab === 2 && <ClassTypesManager classTypes={data.classTypes} onDone={notify} />}
+          {tab === 1 && <StudentManagement data={data} onDone={notify} onRefresh={load} />}
+          {tab === 2 && <ClassTypesManager classTypes={data.classTypes} onDone={notify} onRefresh={load} />}
         </>
       )}
     </Layout>

@@ -18,6 +18,7 @@ export class ApiError extends Error {
 
 const APPS_SCRIPT_URL = import.meta.env.VITE_APPS_SCRIPT_URL as string | undefined;
 const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true';
+const REQUEST_TIMEOUT_MS = 45000;
 
 async function call<T>(action: string, params: Record<string, unknown> = {}): Promise<T> {
   if (USE_MOCK) {
@@ -27,21 +28,28 @@ async function call<T>(action: string, params: Record<string, unknown> = {}): Pr
   if (!APPS_SCRIPT_URL) {
     throw new ApiError('Apps Script URL is not configured. Set VITE_APPS_SCRIPT_URL or VITE_USE_MOCK=true.');
   }
-  const res = await fetch(APPS_SCRIPT_URL, {
-    method: 'POST',
-    // text/plain avoids a CORS preflight, which Apps Script web apps do not answer.
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ action, ...params }),
-  });
-  const text = await res.text();
-  let data: any;
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
-    data = JSON.parse(text);
-  } catch {
-    throw new ApiError('The Apps Script backend returned a non-JSON response (did you deploy it and allow "Anyone with a Google account"?).');
+    const res = await fetch(APPS_SCRIPT_URL, {
+      method: 'POST',
+      // text/plain avoids a CORS preflight, which Apps Script web apps do not answer.
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action, ...params }),
+      signal: controller.signal,
+    });
+    const text = await res.text();
+    let data: any;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new ApiError('The Apps Script backend returned a non-JSON response (did you deploy it and allow "Anyone with a Google account"?).');
+    }
+    if (data.error) throw new ApiError(data.error);
+    return data as T;
+  } finally {
+    window.clearTimeout(timer);
   }
-  if (data.error) throw new ApiError(data.error);
-  return data as T;
 }
 
 export const api = {

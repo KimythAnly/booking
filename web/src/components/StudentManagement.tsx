@@ -16,11 +16,19 @@ import {
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
 import { api } from '../api';
 import { useAuth } from '../auth';
-import { useMutation } from '../hooks/useMutation';
+import { useMutation, isAmbiguousFailure } from '../hooks/useMutation';
 import { useToast } from './Toast';
 import type { AdminData, Student } from '../types';
 
-export default function StudentManagement({ data, onDone }: { data: AdminData; onDone: (msg: string) => void }) {
+export default function StudentManagement({
+  data,
+  onDone,
+  onRefresh,
+}: {
+  data: AdminData;
+  onDone: (msg: string) => void;
+  onRefresh: () => void;
+}) {
   const { email } = useAuth();
   const toast = useToast();
   const mutate = useMutation();
@@ -42,12 +50,17 @@ export default function StudentManagement({ data, onDone }: { data: AdminData; o
     const temp: Student = { student_id: 'tmp_' + Date.now(), name: trimmedName, email: trimmedEmail, active: 'TRUE' };
     setName('');
     setStudentEmail('');
+    const cleanup = () => setTempStudents((prev) => prev.filter((s) => s.student_id !== temp.student_id));
     mutate({
       optimistic: () => setTempStudents((prev) => [...prev, temp]),
-      rollback: () => setTempStudents((prev) => prev.filter((s) => s.student_id !== temp.student_id)),
+      rollback: cleanup,
+      reconcile: () => {
+        cleanup();
+        onRefresh();
+      },
       action: () => api.addStudent(email, trimmedName, trimmedEmail),
       onSuccess: () => {
-        setTempStudents((prev) => prev.filter((s) => s.student_id !== temp.student_id));
+        cleanup();
         onDone('Student added');
       },
     });
@@ -56,14 +69,19 @@ export default function StudentManagement({ data, onDone }: { data: AdminData; o
   function toggleActive(s: Student) {
     const next = isActive(s) ? 'FALSE' : 'TRUE';
     setStatusOverrides((prev) => ({ ...prev, [s.student_id]: next }));
+    const clearOverride = () =>
+      setStatusOverrides((prev) => {
+        const rest = { ...prev };
+        delete rest[s.student_id];
+        return rest;
+      });
     mutate({
       action: () => (next === 'TRUE' ? api.enableStudent(email, s.student_id) : api.disableStudent(email, s.student_id)),
-      rollback: () =>
-        setStatusOverrides((prev) => {
-          const rest = { ...prev };
-          delete rest[s.student_id];
-          return rest;
-        }),
+      rollback: clearOverride,
+      reconcile: () => {
+        clearOverride();
+        onRefresh();
+      },
       onSuccess: () => onDone(`${s.name} ${next === 'TRUE' ? 'enabled' : 'disabled'}`),
     });
   }
@@ -127,6 +145,7 @@ export default function StudentManagement({ data, onDone }: { data: AdminData; o
                         key={ct.id}
                         value={quotaByCell[`${s.student_id}|${ct.id}`] ?? 0}
                         disabled={!isActive(s)}
+                        onRefresh={onRefresh}
                         onSave={(quota) =>
                           api.setStudentQuota(email, s.student_id, ct.id, quota).then(() => onDone(`Quota updated for ${s.name}`))
                         }
@@ -180,10 +199,12 @@ function QuotaCell({
   value,
   disabled,
   onSave,
+  onRefresh,
 }: {
   value: number;
   disabled: boolean;
   onSave: (quota: number) => Promise<void>;
+  onRefresh: () => void;
 }) {
   const [draft, setDraft] = useState<string>(String(value));
   const toast = useToast();
@@ -202,7 +223,12 @@ function QuotaCell({
           const prev = String(value);
           onSave(n).catch((err) => {
             setDraft(prev);
-            toast.error(`操作失敗 — ${(err as Error).message}`);
+            if (isAmbiguousFailure(err)) {
+              onRefresh();
+              toast.warning('連線不穩定或回應逾時 — 已重新同步，請確認操作結果');
+            } else {
+              toast.error(`操作失敗 — ${(err as Error).message}`);
+            }
           });
         }
       }}

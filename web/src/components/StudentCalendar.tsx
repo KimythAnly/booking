@@ -29,6 +29,7 @@ interface Props {
   onRequesting: (slot: Slot) => void;
   onRequestFailed: (slot: Slot) => void;
   onDone: (msg: string, request?: BookingRequest) => void;
+  onReconcile: () => void;
 }
 
 export default function StudentCalendar({
@@ -39,6 +40,7 @@ export default function StudentCalendar({
   onRequesting,
   onRequestFailed,
   onDone,
+  onReconcile,
 }: Props) {
   const { email } = useAuth();
   const mutate = useMutation();
@@ -113,6 +115,7 @@ export default function StudentCalendar({
     mutate({
       optimistic: () => onRequesting(slot),
       rollback: () => onRequestFailed(slot),
+      reconcile: onReconcile,
       action: () => api.requestBooking(email, slot.slot_id),
       onSuccess: (res) =>
         onDone(`Booking requested for ${formatDateTime(slot.start_time)}. Waiting for approval.`, res.request),

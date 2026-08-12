@@ -146,6 +146,7 @@ export default function StudentDashboard() {
                 }
                 load();
               }}
+              onReconcile={load}
             />
           </Box>
           <Box sx={{ width: { xs: '100%', lg: 340 }, flexShrink: 0 }}>

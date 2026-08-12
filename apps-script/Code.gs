@@ -53,6 +53,8 @@ var _classTypesCache_ = null;
 function doPost(e) {
   try {
     _classTypesCache_ = null;
+    _ssCache_ = null;
+    _sheetCache_ = {};
     var body = JSON.parse(e.postData.contents);
     var action = body.action;
     var email = String(body.email || '').toLowerCase();
@@ -219,19 +221,30 @@ function doGet() {
 // Sheets helpers
 // ============================================================
 
+// Per-request handle caches: spreadsheet and sheet handles stay valid for the
+// whole execution, so we avoid re-opening the spreadsheet on every read/write
+// (each open is a slow Apps Script RPC). Reset at the start of every request.
+var _ssCache_ = null;
+var _sheetCache_ = {};
+
 function spreadsheet_() {
-  return CONFIG.SPREADSHEET_ID
-    ? SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID)
-    : SpreadsheetApp.getActiveSpreadsheet();
+  if (_ssCache_ === null) {
+    _ssCache_ = CONFIG.SPREADSHEET_ID
+      ? SpreadsheetApp.openById(CONFIG.SPREADSHEET_ID)
+      : SpreadsheetApp.getActiveSpreadsheet();
+  }
+  return _ssCache_;
 }
 
 function sheet_(name) {
-  var ss = spreadsheet_();
-  var sh = ss.getSheetByName(name);
+  var sh = _sheetCache_[name];
   if (!sh) {
-    sh = ss.insertSheet(name);
-    sh.appendRow(SHEET_HEADERS[name]);
-    return sh;
+    sh = spreadsheet_().getSheetByName(name);
+    if (!sh) {
+      sh = spreadsheet_().insertSheet(name);
+      sh.appendRow(SHEET_HEADERS[name]);
+    }
+    _sheetCache_[name] = sh;
   }
   // Auto-migrate: extend the header row when new columns are added in new versions.
   var headers = SHEET_HEADERS[name];
@@ -978,7 +991,7 @@ function freeSlot_(startIso) {
 // (or a student and the teacher) cannot book the same slot at once.
 function runLocked_(fn) {
   var lock = LockService.getScriptLock();
-  lock.waitLock(30000);
+  lock.waitLock(15000);
   try {
     return fn();
   } finally {

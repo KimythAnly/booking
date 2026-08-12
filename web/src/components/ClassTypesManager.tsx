@@ -29,9 +29,11 @@ import type { ClassType } from '../types';
 export default function ClassTypesManager({
   classTypes,
   onDone,
+  onRefresh,
 }: {
   classTypes: ClassType[];
   onDone: (msg: string) => void;
+  onRefresh: () => void;
 }) {
   const { email } = useAuth();
   const toast = useToast();
@@ -51,12 +53,17 @@ export default function ClassTypesManager({
     }
     const temp: ClassType = { id: 'tmp_' + Date.now(), name: trimmed, active: 'TRUE' };
     setName('');
+    const cleanup = () => setTempTypes((prev) => prev.filter((t) => t.id !== temp.id));
     mutate({
       optimistic: () => setTempTypes((prev) => [...prev, temp]),
-      rollback: () => setTempTypes((prev) => prev.filter((t) => t.id !== temp.id)),
+      rollback: cleanup,
+      reconcile: () => {
+        cleanup();
+        onRefresh();
+      },
       action: () => api.addClassType(email, trimmed),
       onSuccess: () => {
-        setTempTypes((prev) => prev.filter((t) => t.id !== temp.id));
+        cleanup();
         onDone(`Class type "${trimmed}" added`);
       },
     });
@@ -67,14 +74,19 @@ export default function ClassTypesManager({
     const target = toDelete;
     setToDelete(null);
     setHidden((prev) => new Set(prev).add(target.id));
+    const unhide = () =>
+      setHidden((prev) => {
+        const next = new Set(prev);
+        next.delete(target.id);
+        return next;
+      });
     mutate({
       action: () => api.deleteClassType(email, target.id),
-      rollback: () =>
-        setHidden((prev) => {
-          const next = new Set(prev);
-          next.delete(target.id);
-          return next;
-        }),
+      rollback: unhide,
+      reconcile: () => {
+        unhide();
+        onRefresh();
+      },
       onSuccess: () => onDone(`Class type "${target.name}" deleted`),
     });
   }

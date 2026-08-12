@@ -68,7 +68,15 @@ interface CreatingSlot {
   resolved?: boolean;
 }
 
-export default function CalendarView({ data, onDone }: { data: AdminData; onDone: (msg: string) => void }) {
+export default function CalendarView({
+  data,
+  onDone,
+  onRefresh,
+}: {
+  data: AdminData;
+  onDone: (msg: string) => void;
+  onRefresh: () => void;
+}) {
   const { email } = useAuth();
   const toast = useToast();
   const mutate = useMutation();
@@ -193,14 +201,19 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
   function fire(key: string, action: () => Promise<unknown>, successMsg: string) {
     setSelected(null);
     setDone((prev) => new Set(prev).add(key));
+    const unhide = () =>
+      setDone((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
     mutate({
       action,
-      rollback: () =>
-        setDone((prev) => {
-          const next = new Set(prev);
-          next.delete(key);
-          return next;
-        }),
+      rollback: unhide,
+      reconcile: () => {
+        unhide();
+        onRefresh();
+      },
       onSuccess: () => onDone(successMsg),
     });
   }
@@ -252,6 +265,10 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
     mutate({
       optimistic: () => setCreating((prev) => [...prev, placeholder]),
       rollback: () => setCreating((prev) => prev.filter((c) => c.id !== placeholder.id)),
+      reconcile: () => {
+        setCreating((prev) => prev.filter((c) => c.id !== placeholder.id));
+        onRefresh();
+      },
       action,
       onSuccess: (res) => {
         setCreating((prev) => prev.map((c) => (c.id === placeholder.id ? { ...c, resolved: true } : c)));
