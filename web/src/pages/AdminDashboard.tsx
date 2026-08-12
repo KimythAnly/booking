@@ -8,6 +8,8 @@ import type { AdminData } from '../types';
 import CalendarView from '../components/CalendarView';
 import PendingPanel from '../components/PendingPanel';
 import StudentManagement from '../components/StudentManagement';
+import ClassTypesManager from '../components/ClassTypesManager';
+import RecurringClasses from '../components/RecurringClasses';
 
 export default function AdminDashboard() {
   const { email } = useAuth();
@@ -72,6 +74,8 @@ export default function AdminDashboard() {
           <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
             <Tab label="Calendar" />
             <Tab label="Students" />
+            <Tab label="Class types" />
+            <Tab label="Regular classes" />
           </Tabs>
 
           {tab === 0 && (
@@ -85,6 +89,10 @@ export default function AdminDashboard() {
             </Stack>
           )}
           {tab === 1 && <StudentManagement data={data} onDone={notify} />}
+          {tab === 2 && <ClassTypesManager classTypes={data.classTypes} onDone={notify} />}
+          {tab === 3 && (
+            <RecurringClasses recurring={data.recurring} students={data.students} classTypes={data.classTypes} onDone={notify} />
+          )}
         </>
       )}
     </Layout>

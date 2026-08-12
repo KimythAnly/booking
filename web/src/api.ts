@@ -2,9 +2,11 @@ import type {
   AdminData,
   Booking,
   BookingRequest,
+  ClassType,
   Role,
   Slot,
   Student,
+  StudentData,
 } from './types';
 
 export class ApiError extends Error {
@@ -49,8 +51,7 @@ export const api = {
   getAvailableSlots: (email: string) => call<{ slots: Slot[] }>('getAvailableSlots', { email }),
   getMyBookings: (email: string) => call<{ bookings: Booking[] }>('getMyBookings', { email }),
   getMyRequests: (email: string) => call<{ requests: BookingRequest[] }>('getMyRequests', { email }),
-  getStudentData: (email: string) =>
-    call<{ slots: Slot[]; bookings: Booking[]; requests: BookingRequest[] }>('getStudentData', { email }),
+  getStudentData: (email: string) => call<StudentData>('getStudentData', { email }),
   requestBooking: (email: string, slotId: string) =>
     call<{ message: string; request: BookingRequest }>('requestBooking', { email, slotId }),
 
@@ -67,13 +68,27 @@ export const api = {
     call<{ message: string }>('disableStudent', { email, studentId }),
   enableStudent: (email: string, studentId: string) =>
     call<{ message: string }>('enableStudent', { email, studentId }),
-  cancelBooking: (email: string, bookingId: string) =>
-    call<{ message: string }>('cancelBooking', { email, bookingId }),
-  createAvailability: (email: string, startTime: string, endTime: string, studentId?: string) =>
-    call<{ message: string }>('createAvailability', { email, startTime, endTime, studentId: studentId || '' }),
+  cancelBooking: (email: string, bookingId: string, giveQuota = true) =>
+    call<{ message: string }>('cancelBooking', { email, bookingId, giveQuota }),
+  createAvailability: (email: string, startTime: string, endTime: string, classTypeId: string, studentId?: string) =>
+    call<{ message: string }>('createAvailability', {
+      email,
+      startTime,
+      endTime,
+      classTypeId,
+      studentId: studentId || '',
+    }),
   createWeeklyAvailability: (
     email: string,
-    data: { weekday: string; startTime: string; endTime: string; startDate: string; endDate: string; studentId?: string },
+    data: {
+      weekday: string;
+      startTime: string;
+      endTime: string;
+      startDate: string;
+      endDate: string;
+      classTypeId: string;
+      studentId?: string;
+    },
   ) =>
     call<{ message: string; generated: number }>('createWeeklyAvailability', {
       email,
@@ -87,6 +102,7 @@ export const api = {
     email: string,
     data: {
       studentId: string;
+      classTypeId: string;
       weekday: string;
       startTime: string;
       endTime: string;
@@ -96,10 +112,18 @@ export const api = {
   ) => call<{ message: string; id: string; generated: number }>('createRecurringClass', { email, ...data }),
   generateRecurringBookings: (email: string, recurringId: string) =>
     call<{ generated: number }>('generateRecurringBookings', { email, recurringId }),
-  disableRecurringClass: (email: string, recurringId: string) =>
-    call<{ message: string; cancelled: number }>('disableRecurringClass', { email, recurringId }),
+  disableRecurringClass: (email: string, recurringId: string, giveQuota = true) =>
+    call<{ message: string; cancelled: number }>('disableRecurringClass', { email, recurringId, giveQuota }),
   enableRecurringClass: (email: string, recurringId: string) =>
     call<{ message: string; generated: number }>('enableRecurringClass', { email, recurringId }),
-  deleteRecurringClass: (email: string, recurringId: string) =>
-    call<{ message: string }>('deleteRecurringClass', { email, recurringId }),
+  deleteRecurringClass: (email: string, recurringId: string, giveQuota = true) =>
+    call<{ message: string }>('deleteRecurringClass', { email, recurringId, giveQuota }),
+
+  // Class types & quotas
+  listClassTypes: (email: string) => call<{ classTypes: ClassType[] }>('listClassTypes', { email }),
+  addClassType: (email: string, name: string) => call<{ message: string }>('addClassType', { email, name }),
+  deleteClassType: (email: string, classTypeId: string) =>
+    call<{ message: string }>('deleteClassType', { email, classTypeId }),
+  setStudentQuota: (email: string, studentId: string, classTypeId: string, quota: number) =>
+    call<{ message: string }>('setStudentQuota', { email, studentId, classTypeId, quota }),
 };

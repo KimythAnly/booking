@@ -57,11 +57,14 @@ export default function PendingPanel({ data, onDone }: { data: AdminData; onDone
                   <Typography variant="body2" fontWeight={600}>
                     {r.student_name}
                   </Typography>
-                  <Chip
-                    size="small"
-                    color={r.type === 'BOOK' ? 'primary' : 'secondary'}
-                    label={r.type === 'BOOK' ? 'Book' : 'Cancel'}
-                  />
+                  <Stack direction="row" spacing={0.5}>
+                    {r.class_type_name && <Chip size="small" label={r.class_type_name} variant="outlined" />}
+                    <Chip
+                      size="small"
+                      color={r.type === 'BOOK' ? 'primary' : 'secondary'}
+                      label={r.type === 'BOOK' ? 'Book' : 'Cancel'}
+                    />
+                  </Stack>
                 </Stack>
                 <Typography variant="body2" color="text.secondary">
                   {formatDateTime(r.start_time)}

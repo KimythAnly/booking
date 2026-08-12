@@ -25,14 +25,18 @@ var SHEET_NAMES = {
   bookings: 'Bookings',
   recurring: 'RecurringClasses',
   availability: 'Availability',
+  classTypes: 'ClassTypes',
+  studentQuotas: 'StudentQuotas',
 };
 
 var SHEET_HEADERS = {
   Students: ['student_id', 'name', 'email', 'active', 'created_at'],
-  BookingRequests: ['request_id', 'student_id', 'student_email', 'student_name', 'type', 'slot_id', 'booking_id', 'start_time', 'end_time', 'status', 'created_at'],
-  Bookings: ['booking_id', 'student_id', 'student_email', 'student_name', 'start_time', 'end_time', 'status', 'calendar_event_id', 'recurring_id', 'created_at'],
-  RecurringClasses: ['id', 'student_id', 'student_email', 'student_name', 'weekday', 'start_time', 'end_time', 'start_date', 'end_date', 'active'],
-  Availability: ['slot_id', 'start_time', 'end_time', 'status'],
+  BookingRequests: ['request_id', 'student_id', 'student_email', 'student_name', 'type', 'slot_id', 'booking_id', 'start_time', 'end_time', 'status', 'created_at', 'class_type_id', 'class_type_name'],
+  Bookings: ['booking_id', 'student_id', 'student_email', 'student_name', 'start_time', 'end_time', 'status', 'calendar_event_id', 'recurring_id', 'created_at', 'class_type_id', 'class_type_name', 'quota_consumed'],
+  RecurringClasses: ['id', 'student_id', 'student_email', 'student_name', 'weekday', 'start_time', 'end_time', 'start_date', 'end_date', 'active', 'class_type_id', 'class_type_name'],
+  Availability: ['slot_id', 'start_time', 'end_time', 'status', 'class_type_id', 'class_type_name'],
+  ClassTypes: ['id', 'name', 'active'],
+  StudentQuotas: ['id', 'student_id', 'student_name', 'class_type_id', 'class_type_name', 'quota'],
 };
 
 var WEEKDAYS = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
@@ -80,6 +84,8 @@ function doPost(e) {
           slots: getAvailableSlots_(),
           bookings: getStudentBookings_(email),
           requests: getStudentRequests_(email),
+          classTypes: activeClassTypes_(),
+          quotas: getStudentQuotas_(email),
         });
       }
       case 'requestBooking': {
@@ -102,8 +108,7 @@ function doPost(e) {
       }
       case 'rejectRequest': {
         requireTeacher_(role);
-        updateById_(SHEET_NAMES.requests, 'request_id', body.requestId, { status: 'REJECTED' });
-        return json_({ message: 'Request rejected' });
+        return json_(rejectRequest_(body.requestId));
       }
       case 'listStudents': {
         requireTeacher_(role);
@@ -126,16 +131,16 @@ function doPost(e) {
       }
       case 'createAvailability': {
         requireTeacher_(role);
-        createAvailability_(body.startTime, body.endTime, body.studentId);
+        createAvailability_(body.startTime, body.endTime, body.studentId, body.classTypeId);
         return json_({ message: body.studentId ? 'Lesson scheduled' : 'Slot created' });
       }
       case 'createWeeklyAvailability': {
         requireTeacher_(role);
-        return json_(createWeeklyAvailability_(body.weekday, body.startTime, body.endTime, body.startDate, body.endDate, body.studentId));
+        return json_(createWeeklyAvailability_(body.weekday, body.startTime, body.endTime, body.startDate, body.endDate, body.studentId, body.classTypeId));
       }
       case 'cancelBooking': {
         requireTeacher_(role);
-        return json_(cancelBooking_(body.bookingId));
+        return json_(cancelBooking_(body.bookingId, body.giveQuota));
       }
       case 'blockSlot': {
         requireTeacher_(role);
@@ -154,7 +159,7 @@ function doPost(e) {
       }
       case 'createRecurringClass': {
         requireTeacher_(role);
-        return json_(createRecurringClass_(body.studentId, body.weekday, body.startTime, body.endTime, body.startDate, body.endDate));
+        return json_(createRecurringClass_(body.studentId, body.classTypeId, body.weekday, body.startTime, body.endTime, body.startDate, body.endDate));
       }
       case 'generateRecurringBookings': {
         requireTeacher_(role);
@@ -162,7 +167,7 @@ function doPost(e) {
       }
       case 'disableRecurringClass': {
         requireTeacher_(role);
-        return json_(disableRecurringClass_(body.recurringId));
+        return json_(disableRecurringClass_(body.recurringId, body.giveQuota));
       }
       case 'enableRecurringClass': {
         requireTeacher_(role);
@@ -170,7 +175,25 @@ function doPost(e) {
       }
       case 'deleteRecurringClass': {
         requireTeacher_(role);
-        return json_(deleteRecurringClass_(body.recurringId));
+        return json_(deleteRecurringClass_(body.recurringId, body.giveQuota));
+      }
+
+      // ---- Class types & quotas (teacher only) ----
+      case 'listClassTypes': {
+        requireTeacher_(role);
+        return json_({ classTypes: getClassTypes_() });
+      }
+      case 'addClassType': {
+        requireTeacher_(role);
+        return json_({ message: addClassType_(body.name) });
+      }
+      case 'deleteClassType': {
+        requireTeacher_(role);
+        return json_({ message: deleteClassType_(body.classTypeId) });
+      }
+      case 'setStudentQuota': {
+        requireTeacher_(role);
+        return json_({ message: setStudentQuota_(body.studentId, body.classTypeId, body.quota) });
       }
 
       default:
@@ -202,6 +225,15 @@ function sheet_(name) {
   if (!sh) {
     sh = ss.insertSheet(name);
     sh.appendRow(SHEET_HEADERS[name]);
+    return sh;
+  }
+  // Auto-migrate: extend the header row when new columns are added in new versions.
+  var headers = SHEET_HEADERS[name];
+  var last = sh.getLastColumn();
+  var existing = last > 0 ? sh.getRange(1, 1, 1, last).getValues()[0] : [];
+  if (existing.length < headers.length) {
+    sh.getRange(1, existing.length + 1, 1, headers.length - existing.length)
+      .setValues([headers.slice(existing.length)]);
   }
   return sh;
 }
@@ -302,6 +334,117 @@ function getStudentByEmail_(email) {
 }
 
 // ============================================================
+// Class types & student quotas
+// ============================================================
+
+function getClassTypes_() {
+  return readAll_(SHEET_NAMES.classTypes);
+}
+
+function activeClassTypes_() {
+  return getClassTypes_().filter(function (ct) { return isTrue_(ct.active); });
+}
+
+// Returns the first active class type, creating a default "General" type
+// when none exist (so legacy slots and new empty setups still work).
+function ensureDefaultClassType_() {
+  var active = activeClassTypes_();
+  if (active.length > 0) return active[0];
+  var id = genId_('ct');
+  appendRow_(SHEET_NAMES.classTypes, { id: id, name: 'General', active: 'TRUE' });
+  return { id: id, name: 'General', active: 'TRUE' };
+}
+
+// Resolves a possibly-blank or stale class type id to a live one.
+function resolveClassType_(classTypeId) {
+  var ct = findById_(SHEET_NAMES.classTypes, 'id', classTypeId);
+  if (ct && isTrue_(ct.active)) return ct;
+  return ensureDefaultClassType_();
+}
+
+// Fills class_type_id/name on an item, defaulting blanks to the active default type.
+function resolveClassTypeFields_(item) {
+  var ct = resolveClassType_(item.class_type_id);
+  item.class_type_id = ct.id;
+  item.class_type_name = ct.name;
+  return item;
+}
+
+function addClassType_(name) {
+  var n = String(name || '').trim();
+  if (!n) throw new Error('Class type name is required');
+  var dup = getClassTypes_().some(function (ct) {
+    return String(ct.name).toLowerCase() === n.toLowerCase();
+  });
+  if (dup) throw new Error('A class type with this name already exists');
+  appendRow_(SHEET_NAMES.classTypes, { id: genId_('ct'), name: n, active: 'TRUE' });
+  return 'Class type added';
+}
+
+function deleteClassType_(classTypeId) {
+  if (!classTypeId) throw new Error('Class type is required');
+  if (!findById_(SHEET_NAMES.classTypes, 'id', classTypeId)) throw new Error('Class type not found');
+  deleteById_(SHEET_NAMES.classTypes, 'id', classTypeId);
+  return 'Class type deleted';
+}
+
+function getQuotaRow_(studentId, classTypeId) {
+  return readAll_(SHEET_NAMES.studentQuotas).find(function (q) {
+    return String(q.student_id) === String(studentId) && String(q.class_type_id) === String(classTypeId);
+  });
+}
+
+function getQuota_(studentId, classTypeId) {
+  var row = getQuotaRow_(studentId, classTypeId);
+  var n = row ? Number(row.quota) : 0;
+  return isNaN(n) ? 0 : Math.max(0, n);
+}
+
+function setQuota_(studentId, classTypeId, quota, studentName, className) {
+  var value = Math.max(0, Number(quota) || 0);
+  var row = getQuotaRow_(studentId, classTypeId);
+  if (row) {
+    updateById_(SHEET_NAMES.studentQuotas, 'id', row.id, {
+      quota: value,
+      student_name: studentName,
+      class_type_name: className,
+    });
+  } else {
+    appendRow_(SHEET_NAMES.studentQuotas, {
+      id: genId_('q'),
+      student_id: studentId,
+      student_name: studentName,
+      class_type_id: classTypeId,
+      class_type_name: className,
+      quota: value,
+    });
+  }
+  return value;
+}
+
+function addQuota_(studentId, classTypeId, delta, studentName, className) {
+  setQuota_(studentId, classTypeId, getQuota_(studentId, classTypeId) + delta, studentName, className);
+}
+
+function getStudentQuotas_(email) {
+  var student = getStudentByEmail_(email);
+  if (!student) return [];
+  var activeIds = {};
+  activeClassTypes_().forEach(function (ct) { activeIds[ct.id] = true; });
+  return readAll_(SHEET_NAMES.studentQuotas).filter(function (q) {
+    return String(q.student_id) === String(student.student_id) && activeIds[q.class_type_id];
+  });
+}
+
+function setStudentQuota_(studentId, classTypeId, quota) {
+  var student = findById_(SHEET_NAMES.students, 'student_id', studentId);
+  if (!student || !isTrue_(student.active)) throw new Error('Student not found or inactive');
+  var ct = resolveClassType_(classTypeId);
+  setQuota_(studentId, ct.id, Number(quota) || 0, student.name, ct.name);
+  return 'Quota updated';
+}
+
+// ============================================================
 // Student APIs
 // ============================================================
 
@@ -327,7 +470,14 @@ function getAvailableSlots_() {
     })
     .sort(function (a, b) { return a.start_time.localeCompare(b.start_time); })
     .map(function (s) {
-      return { slot_id: s.slot_id, start_time: s.start_time, end_time: s.end_time };
+      var ct = resolveClassType_(s.class_type_id);
+      return {
+        slot_id: s.slot_id,
+        start_time: s.start_time,
+        end_time: s.end_time,
+        class_type_id: ct.id,
+        class_type_name: ct.name,
+      };
     });
 }
 
@@ -356,6 +506,12 @@ function requestBooking_(email, slotId) {
     });
     if (dup) throw new Error('A request for this slot is already pending');
 
+    var ct = resolveClassType_(slot.class_type_id);
+    var quota = getQuota_(student.student_id, ct.id);
+    if (quota <= 0) {
+      throw new Error('You have no ' + ct.name + ' quota left — ask your teacher to add some.');
+    }
+
     var request = {
       request_id: genId_('req'),
       student_id: student.student_id,
@@ -368,8 +524,12 @@ function requestBooking_(email, slotId) {
       end_time: slot.end_time,
       status: 'PENDING',
       created_at: nowIso_(),
+      class_type_id: ct.id,
+      class_type_name: ct.name,
     };
     appendRow_(SHEET_NAMES.requests, request);
+    // Reserve the quota up-front; restored if the request is rejected/cancelled.
+    addQuota_(student.student_id, ct.id, -1, student.name, ct.name);
     return request;
   });
 }
@@ -407,6 +567,9 @@ function approveRequest_(requestId) {
         calendar_event_id: eventId,
         recurring_id: '',
         created_at: nowIso_(),
+        class_type_id: req.class_type_id || '',
+        class_type_name: req.class_type_name || '',
+        quota_consumed: 'TRUE',
       });
       updateById_(SHEET_NAMES.availability, 'slot_id', slot.slot_id, { status: 'BOOKED' });
       updateById_(SHEET_NAMES.requests, 'request_id', requestId, { status: 'APPROVED' });
@@ -427,6 +590,20 @@ function approveRequest_(requestId) {
   });
 }
 
+function rejectRequest_(requestId) {
+  return runLocked_(function () {
+    var req = findById_(SHEET_NAMES.requests, 'request_id', requestId);
+    if (!req) throw new Error('Request not found');
+    if (req.status !== 'PENDING') throw new Error('Request has already been processed');
+    if (req.type === 'BOOK' && req.student_id) {
+      var ct = resolveClassType_(req.class_type_id);
+      addQuota_(req.student_id, ct.id, 1, req.student_name, ct.name);
+    }
+    updateById_(SHEET_NAMES.requests, 'request_id', requestId, { status: 'REJECTED' });
+    return { message: 'Request rejected' };
+  });
+}
+
 function addStudent_(name, studentEmail) {
   var email = String(studentEmail).toLowerCase();
   if (!name || !email) throw new Error('Name and email are required');
@@ -441,13 +618,14 @@ function addStudent_(name, studentEmail) {
   });
 }
 
-function createAvailability_(startTime, endTime, studentId) {
+function createAvailability_(startTime, endTime, studentId, classTypeId) {
   if (!startTime || !endTime) throw new Error('Start and end times are required');
   if (new Date(startTime).getTime() >= new Date(endTime).getTime()) {
     throw new Error('End time must be after start time');
   }
+  var ct = resolveClassType_(classTypeId);
   if (studentId) {
-    createDirectBooking_(startTime, endTime, studentId, '');
+    createDirectBooking_(startTime, endTime, studentId, '', ct);
     return;
   }
   appendRow_(SHEET_NAMES.availability, {
@@ -455,13 +633,16 @@ function createAvailability_(startTime, endTime, studentId) {
     start_time: startTime,
     end_time: endTime,
     status: 'AVAILABLE',
+    class_type_id: ct.id,
+    class_type_name: ct.name,
   });
 }
 
 // Creates an ACTIVE booking (with a calendar event) and reserves the time in the
 // availability sheet, so the slot disappears from students' bookable view and can
-// be released again if the teacher cancels the lesson.
-function createDirectBooking_(startTime, endTime, studentId, recurringId) {
+// be released again if the teacher cancels the lesson. Direct bookings do not
+// consume the student's quota (the teacher arranged the lesson directly).
+function createDirectBooking_(startTime, endTime, studentId, recurringId, ct) {
   var student = findById_(SHEET_NAMES.students, 'student_id', studentId);
   if (!student || !isTrue_(student.active)) throw new Error('Student not found or inactive');
 
@@ -477,6 +658,9 @@ function createDirectBooking_(startTime, endTime, studentId, recurringId) {
     calendar_event_id: eventId,
     recurring_id: recurringId || '',
     created_at: nowIso_(),
+    class_type_id: ct.id,
+    class_type_name: ct.name,
+    quota_consumed: 'FALSE',
   });
 
   var slot = readAll_(SHEET_NAMES.availability).find(function (s) {
@@ -490,11 +674,13 @@ function createDirectBooking_(startTime, endTime, studentId, recurringId) {
       start_time: startTime,
       end_time: endTime,
       status: 'BOOKED',
+      class_type_id: ct.id,
+      class_type_name: ct.name,
     });
   }
 }
 
-function createWeeklyAvailability_(weekday, startTime, endTime, startDate, endDate, studentId) {
+function createWeeklyAvailability_(weekday, startTime, endTime, startDate, endDate, studentId, classTypeId) {
   var wd = WEEKDAYS[String(weekday).toLowerCase()];
   if (wd === undefined) throw new Error('Invalid weekday');
   if (!startTime || !endTime) throw new Error('Start and end times are required');
@@ -503,6 +689,8 @@ function createWeeklyAvailability_(weekday, startTime, endTime, startDate, endDa
   }
   if (!startDate || !endDate) throw new Error('Start and end dates are required');
   if (String(startDate) > String(endDate)) throw new Error('End date must be after start date');
+
+  var ct = resolveClassType_(classTypeId);
 
   if (studentId) {
     var student = findById_(SHEET_NAMES.students, 'student_id', studentId);
@@ -533,13 +721,15 @@ function createWeeklyAvailability_(weekday, startTime, endTime, startDate, endDa
       var isoStart = fmt_(start);
       if (!existing[isoStart]) {
         if (studentId) {
-          createDirectBooking_(isoStart, fmt_(stop), studentId, '');
+          createDirectBooking_(isoStart, fmt_(stop), studentId, '', ct);
         } else {
           appendRow_(SHEET_NAMES.availability, {
             slot_id: genId_('slot'),
             start_time: isoStart,
             end_time: fmt_(stop),
             status: 'AVAILABLE',
+            class_type_id: ct.id,
+            class_type_name: ct.name,
           });
         }
         created.push(isoStart);
@@ -552,7 +742,10 @@ function createWeeklyAvailability_(weekday, startTime, endTime, startDate, endDa
 }
 
 // Teacher-directly cancels a lesson: removes the calendar event and frees the slot.
-function cancelBooking_(bookingId) {
+// For a recurring (regular) class occurrence, giveQuota (default true) grants the
+// student 1 quota as compensation. Student-booked on-demand lessons always restore
+// their reserved quota; teacher-assigned direct lessons consume no quota either way.
+function cancelBooking_(bookingId, giveQuota) {
   return runLocked_(function () {
     var booking = findById_(SHEET_NAMES.bookings, 'booking_id', bookingId);
     if (!booking) throw new Error('Booking not found');
@@ -560,6 +753,15 @@ function cancelBooking_(bookingId) {
     if (booking.calendar_event_id) deleteCalendarEvent_(booking.calendar_event_id);
     updateById_(SHEET_NAMES.bookings, 'booking_id', booking.booking_id, { status: 'CANCELLED' });
     freeSlot_(booking.start_time);
+    if (booking.recurring_id) {
+      if (giveQuota !== false) {
+        var ct = resolveClassType_(booking.class_type_id);
+        addQuota_(booking.student_id, ct.id, 1, booking.student_name, ct.name);
+      }
+    } else if (isTrue_(booking.quota_consumed)) {
+      var ct2 = resolveClassType_(booking.class_type_id);
+      addQuota_(booking.student_id, ct2.id, 1, booking.student_name, ct2.name);
+    }
     return { message: 'Lesson cancelled, calendar event removed' };
   });
 }
@@ -576,6 +778,7 @@ function getAdminData_() {
     if (String(s.status).toUpperCase() === 'BOOKED' && bookedNames[s.start_time]) {
       s.student_name = bookedNames[s.start_time];
     }
+    resolveClassTypeFields_(s);
   });
   return {
     students: readAll_(SHEET_NAMES.students),
@@ -588,6 +791,8 @@ function getAdminData_() {
     }),
     bookings: bookings.sort(function (a, b) { return b.start_time.localeCompare(a.start_time); }),
     recurring: readAll_(SHEET_NAMES.recurring),
+    classTypes: getClassTypes_(),
+    quotas: readAll_(SHEET_NAMES.studentQuotas),
   };
 }
 
@@ -595,12 +800,13 @@ function getAdminData_() {
 // Recurring classes
 // ============================================================
 
-function createRecurringClass_(studentId, weekday, startTime, endTime, startDate, endDate) {
+function createRecurringClass_(studentId, classTypeId, weekday, startTime, endTime, startDate, endDate) {
   var student = findById_(SHEET_NAMES.students, 'student_id', studentId);
   if (!student) throw new Error('Student not found');
   if (WEEKDAYS[String(weekday).toLowerCase()] === undefined) throw new Error('Invalid weekday');
   if (!startDate || !endDate) throw new Error('Start and end dates are required');
   if (startDate > endDate) throw new Error('End date must be after start date');
+  var ct = resolveClassType_(classTypeId);
 
   var id = genId_('rc');
   appendRow_(SHEET_NAMES.recurring, {
@@ -614,6 +820,8 @@ function createRecurringClass_(studentId, weekday, startTime, endTime, startDate
     start_date: startDate,
     end_date: endDate,
     active: 'TRUE',
+    class_type_id: ct.id,
+    class_type_name: ct.name,
   });
   var generated = generateRecurringBookings_(id);
   return { message: 'Recurring class created', id: id, generated: generated.length };
@@ -660,6 +868,9 @@ function generateRecurringBookings_(recurringId) {
           calendar_event_id: eventId,
           recurring_id: String(recurringId),
           created_at: nowIso_(),
+          class_type_id: cls.class_type_id || '',
+          class_type_name: cls.class_type_name || '',
+          quota_consumed: 'FALSE',
         });
         created.push(isoStart);
       }
@@ -670,11 +881,11 @@ function generateRecurringBookings_(recurringId) {
   return created;
 }
 
-function disableRecurringClass_(recurringId) {
+function disableRecurringClass_(recurringId, giveQuota) {
   var cls = findById_(SHEET_NAMES.recurring, 'id', recurringId);
   if (!cls) throw new Error('Recurring class not found');
   updateById_(SHEET_NAMES.recurring, 'id', recurringId, { active: 'FALSE' });
-  var cancelled = cancelFutureOccurrences_(recurringId);
+  var cancelled = cancelFutureOccurrences_(recurringId, giveQuota);
   return { message: 'Recurring class disabled', cancelled: cancelled };
 }
 
@@ -684,13 +895,16 @@ function enableRecurringClass_(recurringId) {
   return { message: 'Recurring class enabled', generated: generated };
 }
 
-function deleteRecurringClass_(recurringId) {
-  cancelFutureOccurrences_(recurringId);
+function deleteRecurringClass_(recurringId, giveQuota) {
+  cancelFutureOccurrences_(recurringId, giveQuota);
   deleteById_(SHEET_NAMES.recurring, 'id', recurringId);
   return { message: 'Recurring class deleted' };
 }
 
-function cancelFutureOccurrences_(recurringId) {
+// Cancels the future occurrences of a recurring class. When giveQuota !== false,
+// each cancelled occurrence grants the student 1 quota so they can book a
+// replacement open slot.
+function cancelFutureOccurrences_(recurringId, giveQuota) {
   var future = readAll_(SHEET_NAMES.bookings).filter(function (b) {
     return String(b.recurring_id) === String(recurringId) &&
       b.status === 'ACTIVE' &&
@@ -700,6 +914,10 @@ function cancelFutureOccurrences_(recurringId) {
     if (b.calendar_event_id) deleteCalendarEvent_(b.calendar_event_id);
     updateById_(SHEET_NAMES.bookings, 'booking_id', b.booking_id, { status: 'CANCELLED' });
     freeSlot_(b.start_time);
+    if (giveQuota !== false) {
+      var ct = resolveClassType_(b.class_type_id);
+      addQuota_(b.student_id, ct.id, 1, b.student_name, ct.name);
+    }
   });
   return future.length;
 }

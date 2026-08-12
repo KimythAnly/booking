@@ -12,6 +12,7 @@ import {
   TableHead,
   TableRow,
   TextField,
+  Typography,
 } from '@mui/material';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
 import { api } from '../api';
@@ -50,6 +51,12 @@ export default function StudentManagement({ data, onDone }: { data: AdminData; o
     }
   }
 
+  const activeTypes = data.classTypes.filter((c) => String(c.active).toUpperCase() === 'TRUE');
+  const quotaByCell: Record<string, number> = {};
+  data.quotas.forEach((q) => {
+    quotaByCell[`${q.student_id}|${q.class_type_id}`] = Number(q.quota) || 0;
+  });
+
   return (
     <Box>
       {error && (
@@ -72,6 +79,62 @@ export default function StudentManagement({ data, onDone }: { data: AdminData; o
           Add Student
         </Button>
       </Stack>
+
+      <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1 }}>
+        Booking quota per class type
+      </Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+        A student can only book open slots of a class type when their quota for it is above zero. Every approved
+        on-demand booking consumes 1 quota; cancelling a regular class can grant quota automatically. Edit the
+        numbers below to adjust manually (changes save when you leave a field).
+      </Typography>
+
+      {activeTypes.length === 0 ? (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Add a class type on the "Class types" tab to start setting quotas.
+        </Alert>
+      ) : (
+        <TableContainer sx={{ boxShadow: 1, borderRadius: 2, bgcolor: 'background.paper', mb: 3 }}>
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell>Student</TableCell>
+                {activeTypes.map((ct) => (
+                  <TableCell key={ct.id} align="center">
+                    {ct.name}
+                  </TableCell>
+                ))}
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {data.students.map((s) => (
+                <TableRow key={s.student_id} hover>
+                  <TableCell>{s.name}</TableCell>
+                  {activeTypes.map((ct) => (
+                    <TableCell key={ct.id} align="center">
+                      <QuotaCell
+                        key={ct.id}
+                        value={quotaByCell[`${s.student_id}|${ct.id}`] ?? 0}
+                        disabled={String(s.active).toUpperCase() !== 'TRUE'}
+                        onSave={(quota) => {
+                          try {
+                            api
+                              .setStudentQuota(email, s.student_id, ct.id, quota)
+                              .then(() => onDone(`Quota updated for ${s.name}`))
+                              .catch((err) => setError((err as Error).message));
+                          } catch (err) {
+                            setError((err as Error).message);
+                          }
+                        }}
+                      />
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      )}
 
       <TableContainer sx={{ boxShadow: 1, borderRadius: 2, bgcolor: 'background.paper' }}>
         <Table size="small">
@@ -106,5 +169,35 @@ export default function StudentManagement({ data, onDone }: { data: AdminData; o
         </Table>
       </TableContainer>
     </Box>
+  );
+}
+
+function QuotaCell({
+  value,
+  disabled,
+  onSave,
+}: {
+  value: number;
+  disabled: boolean;
+  onSave: (quota: number) => void;
+}) {
+  const [draft, setDraft] = useState<string>(String(value));
+  return (
+    <TextField
+      type="number"
+      size="small"
+      inputProps={{ min: 0, style: { textAlign: 'center', width: 56 } }}
+      disabled={disabled}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => {
+        const n = Math.max(0, Math.floor(Number(draft) || 0));
+        setDraft(String(n));
+        if (n !== value) onSave(n);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+      }}
+    />
   );
 }

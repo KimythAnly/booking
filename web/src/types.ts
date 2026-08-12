@@ -1,5 +1,20 @@
 export type Role = 'teacher' | 'student' | 'unauthorized';
 
+export interface ClassType {
+  id: string;
+  name: string;
+  active: string | boolean;
+}
+
+export interface StudentQuota {
+  id: string;
+  student_id: string;
+  student_name: string;
+  class_type_id: string;
+  class_type_name: string;
+  quota: number | string;
+}
+
 export interface Student {
   student_id: string;
   name: string;
@@ -16,6 +31,8 @@ export interface Slot {
   end_time: string;
   status: SlotStatus;
   student_name?: string;
+  class_type_id?: string;
+  class_type_name?: string;
 }
 
 export type BookingStatus = 'ACTIVE' | 'CANCELLED';
@@ -31,6 +48,9 @@ export interface Booking {
   calendar_event_id?: string;
   recurring_id?: string;
   created_at?: string;
+  class_type_id?: string;
+  class_type_name?: string;
+  quota_consumed?: string | boolean;
 }
 
 export type RequestType = 'BOOK' | 'CANCEL';
@@ -48,6 +68,8 @@ export interface BookingRequest {
   end_time: string;
   status: RequestStatus;
   created_at?: string;
+  class_type_id?: string;
+  class_type_name?: string;
 }
 
 export interface RecurringClass {
@@ -61,6 +83,8 @@ export interface RecurringClass {
   start_date: string;
   end_date: string;
   active: string | boolean;
+  class_type_id?: string;
+  class_type_name?: string;
 }
 
 export interface AdminData {
@@ -70,4 +94,14 @@ export interface AdminData {
   requests: BookingRequest[];
   bookings: Booking[];
   recurring: RecurringClass[];
+  classTypes: ClassType[];
+  quotas: StudentQuota[];
+}
+
+export interface StudentData {
+  slots: Slot[];
+  bookings: Booking[];
+  requests: BookingRequest[];
+  classTypes: ClassType[];
+  quotas: StudentQuota[];
 }

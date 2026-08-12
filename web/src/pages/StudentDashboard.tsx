@@ -18,7 +18,7 @@ import Layout from '../components/Layout';
 import StudentCalendar from '../components/StudentCalendar';
 import { useAuth } from '../auth';
 import { api } from '../api';
-import type { Booking, BookingRequest, Slot } from '../types';
+import type { Booking, BookingRequest, ClassType, Slot, StudentQuota } from '../types';
 import { formatDateTime, isFuture } from '../utils';
 
 const REFRESH_MS = 30000;
@@ -28,6 +28,8 @@ export default function StudentDashboard() {
   const [slots, setSlots] = useState<Slot[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [requests, setRequests] = useState<BookingRequest[]>([]);
+  const [classTypes, setClassTypes] = useState<ClassType[]>([]);
+  const [quotas, setQuotas] = useState<StudentQuota[]>([]);
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
   const [loading, setLoading] = useState(true);
@@ -38,6 +40,8 @@ export default function StudentDashboard() {
       setSlots(data.slots);
       setBookings(data.bookings);
       setRequests(data.requests);
+      setClassTypes(data.classTypes);
+      setQuotas(data.quotas);
       setError('');
     } catch (err) {
       setError((err as Error).message);
@@ -94,6 +98,7 @@ export default function StudentDashboard() {
               slots={slots}
               bookings={bookings}
               requests={requests}
+              quotas={quotas}
               onRequesting={(slot) => {
                 setSlots((prev) => prev.filter((s) => s.slot_id !== slot.slot_id));
                 setRequests((prev) => [
@@ -109,6 +114,8 @@ export default function StudentDashboard() {
                     end_time: slot.end_time,
                     status: 'PENDING',
                     created_at: new Date().toISOString(),
+                    class_type_id: slot.class_type_id,
+                    class_type_name: slot.class_type_name,
                   } as BookingRequest,
                   ...prev,
                 ]);
@@ -139,6 +146,7 @@ export default function StudentDashboard() {
           </Box>
           <Box sx={{ width: { xs: '100%', lg: 340 }, flexShrink: 0 }}>
             <Stack spacing={2}>
+              <MyQuotas classTypes={classTypes} quotas={quotas} />
               <UpcomingLessons bookings={upcoming} />
               <MyRequests requests={requests} />
             </Stack>
@@ -163,7 +171,7 @@ function UpcomingLessons({ bookings }: { bookings: Booking[] }) {
           {bookings.map((b) => (
             <ListItem key={b.booking_id} divider>
               <ListItemText
-                primary={formatDateTime(b.start_time)}
+                primary={b.class_type_name ? `${b.class_type_name} · ${formatDateTime(b.start_time)}` : formatDateTime(b.start_time)}
                 secondary={`${formatDateTime(b.start_time)} – ${formatDateTime(b.end_time)}`}
               />
             </ListItem>
@@ -196,7 +204,7 @@ function MyRequests({ requests }: { requests: BookingRequest[] }) {
             return (
               <ListItem key={r.request_id} divider>
                 <ListItemText
-                  primary={`${r.type === 'BOOK' ? 'Booking' : 'Cancellation'} request`}
+                  primary={`${r.type === 'BOOK' ? 'Booking' : 'Cancellation'} request${r.class_type_name ? ` · ${r.class_type_name}` : ''}`}
                   secondary={formatDateTime(r.start_time)}
                 />
                 <Chip label={badge.label} color={badge.color} size="small" />
@@ -214,6 +222,35 @@ function Empty({ text }: { text: string }) {
     <Card sx={{ borderRadius: 2 }}>
       <CardContent sx={{ textAlign: 'center', py: 4 }}>
         <Typography color="text.secondary">{text}</Typography>
+      </CardContent>
+    </Card>
+  );
+}
+
+function MyQuotas({ classTypes, quotas }: { classTypes: ClassType[]; quotas: StudentQuota[] }) {
+  const byType = new Map(quotas.map((q) => [q.class_type_id, Number(q.quota) || 0]));
+  if (classTypes.length === 0) return null;
+  return (
+    <Card sx={{ borderRadius: 2 }}>
+      <CardContent>
+        <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1 }}>
+          My quota
+        </Typography>
+        <Stack spacing={0.5}>
+          {classTypes.map((ct) => {
+            const quota = byType.get(ct.id) ?? 0;
+            return (
+              <Stack key={ct.id} direction="row" justifyContent="space-between" alignItems="center">
+                <Typography variant="body2">{ct.name}</Typography>
+                <Chip
+                  size="small"
+                  color={quota > 0 ? 'success' : 'default'}
+                  label={quota > 0 ? `${quota} left` : 'No quota'}
+                />
+              </Stack>
+            );
+          })}
+        </Stack>
       </CardContent>
     </Card>
   );

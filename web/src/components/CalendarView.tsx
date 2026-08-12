@@ -8,6 +8,7 @@ import {
   Alert,
   Box,
   Button,
+  Checkbox,
   Chip,
   Dialog,
   DialogActions,
@@ -49,6 +50,7 @@ interface NewSlot {
   endInput: string;
   mode: 'single' | 'weekly';
   studentId: string;
+  classTypeId: string;
   weekStartDate: string;
   weekEndDate: string;
 }
@@ -62,6 +64,7 @@ interface CreatingSlot {
   id: string;
   start: string;
   end: string;
+  resolved?: boolean;
 }
 
 export default function CalendarView({ data, onDone }: { data: AdminData; onDone: (msg: string) => void }) {
@@ -72,6 +75,7 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
   const [processing, setProcessing] = useState<Record<string, string>>({});
   const [done, setDone] = useState<Set<string>>(new Set());
   const [creating, setCreating] = useState<CreatingSlot[]>([]);
+  const [giveQuota, setGiveQuota] = useState(true);
   const inFlight = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -85,6 +89,12 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
       return next.size === prev.size ? prev : next;
     });
   }, [data]);
+
+  useEffect(() => {
+    if (creating.length === 0) return;
+    const byTime = new Set(data.availability.map((s) => s.start_time + '|' + s.end_time));
+    setCreating((prev) => prev.filter((c) => !(c.resolved && byTime.has(c.start + '|' + c.end))));
+  }, [data, creating.length]);
 
   const pendingBookTimes = new Set(
     data.pendingRequests.filter((r) => r.type === 'BOOK').map((r) => r.start_time),
@@ -103,8 +113,8 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
           title: label
             ? `${label} - ${r.student_name}`
             : r.type === 'BOOK'
-              ? `Request - ${r.student_name}`
-              : `Cancel - ${r.student_name}`,
+              ? `Request - ${r.student_name} (${r.class_type_name || 'General'})`
+              : `Cancel - ${r.student_name} (${r.class_type_name || 'General'})`,
           start: r.start_time,
           end: r.end_time,
           backgroundColor: label ? '#94a3b8' : r.type === 'BOOK' ? '#f59e0b' : '#e11d48',
@@ -124,7 +134,7 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
         const label = processing['slot_' + s.slot_id];
         return {
           id: 'slot_' + s.slot_id,
-          title: label || (s.status === 'BLOCKED' ? 'Blocked' : 'Available'),
+          title: label || (s.status === 'BLOCKED' ? 'Blocked' : `Available (${s.class_type_name || 'General'})`),
           start: s.start_time,
           end: s.end_time,
           backgroundColor: label ? '#94a3b8' : s.status === 'BLOCKED' ? '#6b7280' : '#22c55e',
@@ -139,7 +149,7 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
         const label = processing['bk_' + b.booking_id];
         return {
           id: 'bk_' + b.booking_id,
-          title: label || `Lesson - ${b.student_name}`,
+          title: label || `Lesson - ${b.student_name} (${b.class_type_name || 'General'})`,
           start: b.start_time,
           end: b.end_time,
           backgroundColor: label ? '#94a3b8' : '#4f46e5',
@@ -150,11 +160,11 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
       }),
     ...creating.map((c) => ({
       id: 'creating_' + c.id,
-      title: 'Creating…',
+      title: c.resolved ? 'Available…' : 'Creating…',
       start: c.start,
       end: c.end,
-      backgroundColor: '#94a3b8',
-      borderColor: '#94a3b8',
+      backgroundColor: c.resolved ? '#22c55e' : '#94a3b8',
+      borderColor: c.resolved ? '#22c55e' : '#94a3b8',
       textColor: '#ffffff',
       extendedProps: { kind: 'creating' as const },
     })),
@@ -164,6 +174,7 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
   const selectedSlot = data.availability.find((s) => 'slot_' + s.slot_id === selected?.id);
   const selectedBooking = data.bookings.find((b) => 'bk_' + b.booking_id === selected?.id);
   const activeStudents = data.students.filter((s) => String(s.active).toUpperCase() === 'TRUE');
+  const activeTypes = data.classTypes.filter((c) => String(c.active).toUpperCase() === 'TRUE');
 
   function handleSelect(info: DateSelectArg) {
     if (info.allDay) return;
@@ -177,6 +188,7 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
       endInput: toInput(end),
       mode: 'single',
       studentId: '',
+      classTypeId: activeTypes[0]?.id ?? '',
       weekStartDate: toDateStr(start),
       weekEndDate: toDateStr(new Date(start.getTime() + 8 * 7 * 86400000)),
     });
@@ -186,6 +198,7 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
     const kind = (info.event.extendedProps as { kind?: string }).kind ?? 'booking';
     if (kind === 'creating') return;
     setError('');
+    if (kind === 'booking') setGiveQuota(true);
     setSelected({ id: info.event.id, kind: kind as SelectedEvent['kind'] });
   }
 
@@ -239,9 +252,9 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
 
     const action = (): Promise<{ generated?: number }> => {
       if (slot.mode === 'single') {
-        return api.createAvailability(email, toIso(start), toIso(end), slot.studentId || undefined).then(() => ({
-          generated: 0,
-        }));
+        return api
+          .createAvailability(email, toIso(start), toIso(end), slot.classTypeId, slot.studentId || undefined)
+          .then(() => ({ generated: 0 }));
       }
       const ws = new Date(slot.weekStartDate);
       const we = new Date(slot.weekEndDate);
@@ -252,6 +265,7 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
           endTime: slot.endInput.split('T')[1].slice(0, 5),
           startDate: toDateStr(ws),
           endDate: toDateStr(we),
+          classTypeId: slot.classTypeId,
           studentId: slot.studentId || undefined,
         })
         .then((res) => ({ generated: res.generated }));
@@ -259,6 +273,7 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
 
     action()
       .then((res) => {
+        setCreating((prev) => prev.map((c) => (c.id === placeholder.id ? { ...c, resolved: true } : c)));
         onDone(
           slot.mode === 'single'
             ? slot.studentId
@@ -269,8 +284,10 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
               : `Weekly availability created (${res.generated ?? 0} slots)`,
         );
       })
-      .catch((err) => setError((err as Error).message))
-      .finally(() => setCreating((prev) => prev.filter((c) => c.id !== placeholder.id)));
+      .catch((err) => {
+        setCreating((prev) => prev.filter((c) => c.id !== placeholder.id));
+        setError((err as Error).message);
+      });
   }
 
   return (
@@ -350,6 +367,22 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
                 {activeStudents.map((s) => (
                   <MenuItem key={s.student_id} value={s.student_id}>
                     {s.name}
+                  </MenuItem>
+                ))}
+              </TextField>
+              <TextField
+                select
+                label="Class type"
+                size="small"
+                value={newSlot.classTypeId}
+                fullWidth
+                sx={{ mt: 2 }}
+                onChange={(e) => setNewSlot({ ...newSlot, classTypeId: e.target.value })}
+                helperText="The subject of this class. Students can only book types they have quota for."
+              >
+                {activeTypes.map((ct) => (
+                  <MenuItem key={ct.id} value={ct.id}>
+                    {ct.name}
                   </MenuItem>
                 ))}
               </TextField>
@@ -439,7 +472,16 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
               <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
                 {formatDateTime(selectedBooking.start_time)} – {formatDateTime(selectedBooking.end_time)}
               </Typography>
-              <Typography variant="body2" color="text.secondary">{selectedBooking.student_email}</Typography>
+              <Typography variant="body2" color="text.secondary">
+                {selectedBooking.class_type_name || 'General'} · {selectedBooking.student_email}
+              </Typography>
+              {selectedBooking.recurring_id && (
+                <FormControlLabel
+                  control={<Checkbox checked={giveQuota} onChange={(e) => setGiveQuota(e.target.checked)} />}
+                  label="Give the student 1 quota for this cancelled class"
+                  sx={{ mt: 2 }}
+                />
+              )}
             </>
           )}
         </DialogContent>
@@ -517,7 +559,7 @@ export default function CalendarView({ data, onDone }: { data: AdminData; onDone
               startIcon={<DeleteIcon />}
               onClick={() =>
                 fire(
-                  () => api.cancelBooking(email, selectedBooking.booking_id),
+                  () => api.cancelBooking(email, selectedBooking.booking_id, giveQuota),
                   'Lesson cancelled — calendar updated',
                   'bk_' + selectedBooking.booking_id,
                   'Cancelling…',

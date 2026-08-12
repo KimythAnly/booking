@@ -17,13 +17,14 @@ import {
 } from '@mui/material';
 import { api } from '../api';
 import { useAuth } from '../auth';
-import type { Booking, BookingRequest, Slot } from '../types';
+import type { Booking, BookingRequest, Slot, StudentQuota } from '../types';
 import { formatDateTime } from '../utils';
 
 interface Props {
   slots: Slot[];
   bookings: Booking[];
   requests: BookingRequest[];
+  quotas: StudentQuota[];
   onRequesting: (slot: Slot) => void;
   onRequestFailed: (slot: Slot) => void;
   onDone: (msg: string, request?: BookingRequest) => void;
@@ -34,6 +35,7 @@ export default function StudentCalendar({
   slots,
   bookings,
   requests,
+  quotas,
   onRequesting,
   onRequestFailed,
   onDone,
@@ -44,22 +46,29 @@ export default function StudentCalendar({
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [selectedRequest, setSelectedRequest] = useState<BookingRequest | null>(null);
 
+  const quotaByType = new Map(quotas.map((q) => [q.class_type_id, Number(q.quota) || 0]));
+  const hasQuota = (s: Slot) => (quotaByType.get(s.class_type_id || '') ?? 0) > 0;
+
   const events: EventInput[] = [
-    ...slots.map((s) => ({
-      id: 'av_' + s.slot_id,
-      title: 'Available',
-      start: s.start_time,
-      end: s.end_time,
-      backgroundColor: '#22c55e',
-      borderColor: '#22c55e',
-      textColor: '#ffffff',
-      extendedProps: { kind: 'available' as const },
-    })),
+    ...slots.map((s) => {
+      const blocked = !hasQuota(s);
+      const typeName = s.class_type_name || 'General';
+      return {
+        id: 'av_' + s.slot_id,
+        title: blocked ? `${typeName} — no quota` : `${typeName} · Available`,
+        start: s.start_time,
+        end: s.end_time,
+        backgroundColor: blocked ? '#9ca3af' : '#22c55e',
+        borderColor: blocked ? '#9ca3af' : '#22c55e',
+        textColor: '#ffffff',
+        extendedProps: { kind: 'available' as const, blocked },
+      };
+    }),
     ...bookings
       .filter((b) => b.status === 'ACTIVE')
       .map((b) => ({
         id: 'bk_' + b.booking_id,
-        title: 'My lesson',
+        title: b.class_type_name ? `${b.class_type_name} · My lesson` : 'My lesson',
         start: b.start_time,
         end: b.end_time,
         backgroundColor: '#4f46e5',
@@ -73,7 +82,11 @@ export default function StudentCalendar({
         const requesting = r.request_id.startsWith('tmp_');
         return {
           id: 'req_' + r.request_id,
-          title: requesting ? 'Requesting booking…' : r.type === 'CANCEL' ? 'Cancellation request' : 'Booking request',
+          title: requesting
+            ? 'Requesting booking…'
+            : r.type === 'CANCEL'
+              ? `Cancellation request${r.class_type_name ? ` · ${r.class_type_name}` : ''}`
+              : `Booking request${r.class_type_name ? ` · ${r.class_type_name}` : ''}`,
           start: r.start_time,
           end: r.end_time,
           backgroundColor: requesting ? '#94a3b8' : r.type === 'CANCEL' ? '#e11d48' : '#f59e0b',
@@ -141,19 +154,35 @@ export default function StudentCalendar({
       <Dialog open={!!selectedSlot} onClose={() => setSelectedSlot(null)} maxWidth="xs" fullWidth>
         <DialogTitle>Request booking</DialogTitle>
         <DialogContent>
-          <Typography>Book this open slot?</Typography>
-          {selectedSlot && (
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-              {formatDateTime(selectedSlot.start_time)} – {formatDateTime(selectedSlot.end_time)}
-            </Typography>
-          )}
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-            The teacher must approve your request before the lesson is confirmed.
-          </Typography>
+          {selectedSlot && (() => {
+            const blocked = !hasQuota(selectedSlot);
+            return (
+              <>
+                <Typography>{blocked ? 'You have no quota for this class type.' : 'Book this open slot?'}</Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                  {selectedSlot.class_type_name || 'General'} · {formatDateTime(selectedSlot.start_time)} –{' '}
+                  {formatDateTime(selectedSlot.end_time)}
+                </Typography>
+                {blocked ? (
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                    Your teacher adds quota, or you may receive one when a regular class is cancelled.
+                  </Typography>
+                ) : (
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                    The teacher must approve your request before the lesson is confirmed.
+                  </Typography>
+                )}
+              </>
+            );
+          })()}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setSelectedSlot(null)}>Cancel</Button>
-          <Button variant="contained" onClick={() => selectedSlot && requestBooking(selectedSlot)}>
+          <Button
+            variant="contained"
+            disabled={!!selectedSlot && !hasQuota(selectedSlot)}
+            onClick={() => selectedSlot && requestBooking(selectedSlot)}
+          >
             Send request
           </Button>
         </DialogActions>
@@ -166,7 +195,8 @@ export default function StudentCalendar({
           {selectedBooking && (
             <>
               <Typography variant="body2" color="text.secondary">
-                {formatDateTime(selectedBooking.start_time)} – {formatDateTime(selectedBooking.end_time)}
+                {selectedBooking.class_type_name || 'General'} · {formatDateTime(selectedBooking.start_time)} –{' '}
+                {formatDateTime(selectedBooking.end_time)}
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
                 Cancellations are handled by the teacher.
@@ -188,6 +218,7 @@ export default function StudentCalendar({
               <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
                 <Typography>
                   {selectedRequest.type === 'BOOK' ? 'Booking request' : 'Cancellation request'}
+                  {selectedRequest.class_type_name ? ` · ${selectedRequest.class_type_name}` : ''}
                 </Typography>
                 <Chip size="small" color="warning" label="Pending approval" />
               </Stack>
