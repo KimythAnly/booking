@@ -7,7 +7,6 @@ import type { DateSelectArg, EventClickArg, EventInput } from '@fullcalendar/cor
 import {
   Box,
   Button,
-  Checkbox,
   Chip,
   Dialog,
   DialogActions,
@@ -84,7 +83,6 @@ export default function CalendarView({
   const [selected, setSelected] = useState<SelectedEvent | null>(null);
   const [done, setDone] = useState<Set<string>>(new Set());
   const [creating, setCreating] = useState<CreatingSlot[]>([]);
-  const [giveQuota, setGiveQuota] = useState(true);
 
   useEffect(() => {
     const known = new Set([
@@ -194,7 +192,6 @@ export default function CalendarView({
   function handleEventClick(info: EventClickArg) {
     const kind = (info.event.extendedProps as { kind?: string }).kind ?? 'booking';
     if (kind === 'creating') return;
-    if (kind === 'booking') setGiveQuota(true);
     setSelected({ id: info.event.id, kind: kind as SelectedEvent['kind'] });
   }
 
@@ -460,13 +457,6 @@ export default function CalendarView({
               <Typography variant="body2" color="text.secondary">
                 {selectedBooking.class_type_name || 'General'} · {selectedBooking.student_email}
               </Typography>
-              {selectedBooking.recurring_id && (
-                <FormControlLabel
-                  control={<Checkbox checked={giveQuota} onChange={(e) => setGiveQuota(e.target.checked)} />}
-                  label="Give the student 1 quota for this cancelled class"
-                  sx={{ mt: 2 }}
-                />
-              )}
             </>
           )}
         </DialogContent>
@@ -541,7 +531,7 @@ export default function CalendarView({
               onClick={() =>
                 fire(
                   'bk_' + selectedBooking.booking_id,
-                  () => api.cancelBooking(email, selectedBooking.booking_id, giveQuota),
+                  () => api.cancelBooking(email, selectedBooking.booking_id),
                   'Lesson cancelled — calendar updated',
                 )
               }

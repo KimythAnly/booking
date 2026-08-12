@@ -10,7 +10,6 @@ import type {
   Booking,
   BookingRequest,
   ClassType,
-  RecurringClass,
   Role,
   Slot,
   Student,
@@ -44,9 +43,6 @@ function getRequests(): BookingRequest[] {
 }
 function getBookings(): Booking[] {
   return load<Booking[]>('bookings', []);
-}
-function getRecurring(): RecurringClass[] {
-  return load<RecurringClass[]>('recurring', []);
 }
 function getSlots(): Slot[] {
   return load<Slot[]>('availability', []);
@@ -219,7 +215,6 @@ function seed() {
         end_time: future[1].end_time,
         status: 'ACTIVE',
         calendar_event_id: 'mock_event_seed',
-        recurring_id: '',
         created_at: new Date().toISOString(),
         class_type_id: future[1].class_type_id,
         class_type_name: future[1].class_type_name,
@@ -377,7 +372,6 @@ export default async function mock(action: string, params: Record<string, unknow
           end_time: req.end_time,
           status: 'ACTIVE',
           calendar_event_id: 'mock_event_' + genId('ev'),
-          recurring_id: '',
           created_at: new Date().toISOString(),
           class_type_id: req.class_type_id || '',
           class_type_name: req.class_type_name || '',
@@ -463,12 +457,7 @@ export default async function mock(action: string, params: Record<string, unknow
       const slot = slots.find((s) => s.start_time === booking.start_time && s.status === 'BOOKED');
       if (slot) slot.status = 'AVAILABLE';
       save('availability', slots);
-      if (booking.recurring_id) {
-        if (params.giveQuota !== false) {
-          const ct = resolveClassType(booking.class_type_id);
-          addQuota(booking.student_id, ct.id, 1, booking.student_name, ct.name);
-        }
-      } else if (String(booking.quota_consumed).toUpperCase() === 'TRUE') {
+      if (String(booking.quota_consumed).toUpperCase() === 'TRUE') {
         const ct = resolveClassType(booking.class_type_id);
         addQuota(booking.student_id, ct.id, 1, booking.student_name, ct.name);
       }
@@ -485,7 +474,7 @@ export default async function mock(action: string, params: Record<string, unknow
       const ct = resolveClassType(String(params.classTypeId || ''));
       const slots = getSlots();
       if (studentId) {
-        createDirectBooking(start, end, studentId, '', ct);
+        createDirectBooking(start, end, studentId, ct);
       } else {
         slots.push({
           slot_id: genId('slot'),
@@ -534,7 +523,7 @@ export default async function mock(action: string, params: Record<string, unknow
           const isoStart = st.toISOString();
           if (!existing.has(isoStart)) {
             if (studentId) {
-              createDirectBooking(isoStart, en.toISOString(), studentId, '', ct);
+              createDirectBooking(isoStart, en.toISOString(), studentId, ct);
             } else {
               slots.push({
                 slot_id: genId('slot'),
@@ -572,68 +561,7 @@ export default async function mock(action: string, params: Record<string, unknow
       return { message: 'Slot deleted' };
     }
 
-    case 'createRecurringClass': {
-      requireTeacher();
-      const student = getStudents().find((s) => s.student_id === params.studentId);
-      if (!student) throw new Error('Student not found');
-      const ct = resolveClassType(String(params.classTypeId || ''));
-      const rc: RecurringClass = {
-        id: genId('rc'),
-        student_id: student.student_id,
-        student_email: student.email,
-        student_name: student.name,
-        weekday: String(params.weekday),
-        start_time: String(params.startTime),
-        end_time: String(params.endTime),
-        start_date: String(params.startDate),
-        end_date: String(params.endDate),
-        active: 'TRUE',
-        class_type_id: ct.id,
-        class_type_name: ct.name,
-      };
-      const all = getRecurring();
-      all.push(rc);
-      save('recurring', all);
-      const generated = generateRecurring(rc, true);
-      return { message: 'Recurring class created', id: rc.id, generated };
-    }
 
-    case 'generateRecurringBookings': {
-      requireTeacher();
-      const rc = getRecurring().find((r) => r.id === params.recurringId);
-      if (!rc) throw new Error('Recurring class not found');
-      const generated = generateRecurring(rc, false);
-      return { generated };
-    }
-
-    case 'disableRecurringClass': {
-      requireTeacher();
-      const all = getRecurring();
-      const rc = all.find((r) => r.id === params.recurringId);
-      if (!rc) throw new Error('Recurring class not found');
-      rc.active = 'FALSE';
-      save('recurring', all);
-      const cancelled = cancelFuture(rc.id, params.giveQuota !== false);
-      return { message: 'Recurring class disabled', cancelled };
-    }
-
-    case 'enableRecurringClass': {
-      requireTeacher();
-      const all = getRecurring();
-      const rc = all.find((r) => r.id === params.recurringId);
-      if (!rc) throw new Error('Recurring class not found');
-      rc.active = 'TRUE';
-      save('recurring', all);
-      const generated = generateRecurring(rc, false);
-      return { message: 'Recurring class enabled', generated };
-    }
-
-    case 'deleteRecurringClass': {
-      requireTeacher();
-      cancelFuture(String(params.recurringId), params.giveQuota !== false);
-      save('recurring', getRecurring().filter((r) => r.id !== params.recurringId));
-      return { message: 'Recurring class deleted' };
-    }
 
     case 'listClassTypes': {
       requireTeacher();
@@ -691,13 +619,12 @@ function getAdminData(): AdminData {
     pendingRequests: getRequests().filter((r) => r.status === 'PENDING'),
     requests: getRequests().sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))),
     bookings: bookings.sort((a, b) => b.start_time.localeCompare(a.start_time)),
-    recurring: getRecurring(),
     classTypes: getClassTypes(),
     quotas: getQuotas(),
   };
 }
 
-function createDirectBooking(startTime: string, endTime: string, studentId: string, recurringId: string, ct: ClassType) {
+function createDirectBooking(startTime: string, endTime: string, studentId: string, ct: ClassType) {
   const student = getStudents().find((s) => s.student_id === studentId);
   if (!student) throw new Error('Student not found');
   const bookings = getBookings();
@@ -710,7 +637,6 @@ function createDirectBooking(startTime: string, endTime: string, studentId: stri
     end_time: endTime,
     status: 'ACTIVE',
     calendar_event_id: 'mock_event_' + genId('ev'),
-    recurring_id: recurringId,
     created_at: new Date().toISOString(),
     class_type_id: ct.id,
     class_type_name: ct.name,
@@ -734,77 +660,3 @@ function createDirectBooking(startTime: string, endTime: string, studentId: stri
   save('availability', slots);
 }
 
-function generateRecurring(rc: RecurringClass, includeAll: boolean): number {
-  const startDate = new Date(rc.start_date + 'T00:00:00');
-  const endDate = new Date(rc.end_date + 'T23:59:59');
-  const wd = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'].indexOf(
-    rc.weekday.toLowerCase(),
-  );
-  const [sh, sm] = rc.start_time.split(':').map(Number);
-  const [eh, em] = rc.end_time.split(':').map(Number);
-  const existing = new Set(
-    getBookings().filter((b) => b.recurring_id === rc.id && b.status === 'ACTIVE').map((b) => b.start_time),
-  );
-  let count = 0;
-  const cursor = new Date(startDate);
-  let guard = 0;
-  while (cursor.getTime() <= endDate.getTime() && guard < 400) {
-    if (cursor.getDay() === wd) {
-      const st = new Date(cursor);
-      st.setHours(sh, sm, 0, 0);
-      const en = new Date(cursor);
-      en.setHours(eh, em, 0, 0);
-      const isoStart = st.toISOString();
-      if (!includeAll && existing.has(isoStart)) {
-        cursor.setDate(cursor.getDate() + 1);
-        guard++;
-        continue;
-      }
-      if (!existing.has(isoStart)) {
-        const bookings = getBookings();
-        bookings.push({
-          booking_id: genId('bk'),
-          student_id: rc.student_id,
-          student_email: rc.student_email,
-          student_name: rc.student_name,
-          start_time: isoStart,
-          end_time: en.toISOString(),
-          status: 'ACTIVE',
-          calendar_event_id: 'mock_event_' + genId('ev'),
-          recurring_id: rc.id,
-          created_at: new Date().toISOString(),
-          class_type_id: rc.class_type_id || '',
-          class_type_name: rc.class_type_name || '',
-          quota_consumed: 'FALSE',
-        });
-        save('bookings', bookings);
-        existing.add(isoStart);
-        count++;
-      }
-    }
-    cursor.setDate(cursor.getDate() + 1);
-    guard++;
-  }
-  return count;
-}
-
-function cancelFuture(recurringId: string, giveQuota: boolean): number {
-  const bookings = getBookings();
-  const slots = getSlots();
-  let cancelled = 0;
-  bookings.forEach((b) => {
-    if (b.recurring_id === recurringId && b.status === 'ACTIVE' && new Date(b.start_time).getTime() > Date.now()) {
-      b.status = 'CANCELLED';
-      cancelled++;
-      const slot = slots.find((s) => s.start_time === b.start_time && s.status === 'BOOKED');
-      if (slot) slot.status = 'AVAILABLE';
-      if (giveQuota) {
-        const ct = resolveClassType(b.class_type_id);
-        addQuota(b.student_id, ct.id, 1, b.student_name, ct.name);
-      }
-    }
-  });
-  save('bookings', bookings);
-  save('availability', slots);
-  return cancelled;
-}

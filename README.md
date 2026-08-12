@@ -61,7 +61,7 @@ booking/
 > and `appsscript.json` as-is so your emails/calendar/timezone settings are preserved. Then
 > Deploy → Manage deployments → Edit → New version → Deploy.
 
-The Sheets (`Students`, `BookingRequests`, `Bookings`, `RecurringClasses`, `Availability`,
+The Sheets (`Students`, `BookingRequests`, `Bookings`, `Availability`,
 `ClassTypes`, `StudentQuotas`) are created automatically on first use. Columns are auto-added to
 existing sheets on upgrade, and a default **General** class type is created if none exist — so older
 spreadsheets keep working without manual setup.

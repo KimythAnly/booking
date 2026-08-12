@@ -83,8 +83,8 @@ export const api = {
     call<{ message: string }>('disableStudent', { email, studentId }),
   enableStudent: (email: string, studentId: string) =>
     call<{ message: string }>('enableStudent', { email, studentId }),
-  cancelBooking: (email: string, bookingId: string, giveQuota = true) =>
-    call<{ message: string }>('cancelBooking', { email, bookingId, giveQuota }),
+  cancelBooking: (email: string, bookingId: string) =>
+    call<{ message: string }>('cancelBooking', { email, bookingId }),
   createAvailability: (email: string, startTime: string, endTime: string, classTypeId: string, studentId?: string) =>
     call<{ message: string }>('createAvailability', {
       email,
@@ -113,26 +113,6 @@ export const api = {
   blockSlot: (email: string, slotId: string) => call<{ message: string }>('blockSlot', { email, slotId }),
   unblockSlot: (email: string, slotId: string) => call<{ message: string }>('unblockSlot', { email, slotId }),
   deleteSlot: (email: string, slotId: string) => call<{ message: string }>('deleteSlot', { email, slotId }),
-  createRecurringClass: (
-    email: string,
-    data: {
-      studentId: string;
-      classTypeId: string;
-      weekday: string;
-      startTime: string;
-      endTime: string;
-      startDate: string;
-      endDate: string;
-    },
-  ) => call<{ message: string; id: string; generated: number }>('createRecurringClass', { email, ...data }),
-  generateRecurringBookings: (email: string, recurringId: string) =>
-    call<{ generated: number }>('generateRecurringBookings', { email, recurringId }),
-  disableRecurringClass: (email: string, recurringId: string, giveQuota = true) =>
-    call<{ message: string; cancelled: number }>('disableRecurringClass', { email, recurringId, giveQuota }),
-  enableRecurringClass: (email: string, recurringId: string) =>
-    call<{ message: string; generated: number }>('enableRecurringClass', { email, recurringId }),
-  deleteRecurringClass: (email: string, recurringId: string, giveQuota = true) =>
-    call<{ message: string }>('deleteRecurringClass', { email, recurringId, giveQuota }),
 
   // Class types & quotas
   listClassTypes: (email: string) => call<{ classTypes: ClassType[] }>('listClassTypes', { email }),

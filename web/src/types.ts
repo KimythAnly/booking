@@ -46,7 +46,6 @@ export interface Booking {
   end_time: string;
   status: BookingStatus;
   calendar_event_id?: string;
-  recurring_id?: string;
   created_at?: string;
   class_type_id?: string;
   class_type_name?: string;
@@ -72,28 +71,12 @@ export interface BookingRequest {
   class_type_name?: string;
 }
 
-export interface RecurringClass {
-  id: string;
-  student_id: string;
-  student_email: string;
-  student_name: string;
-  weekday: string;
-  start_time: string;
-  end_time: string;
-  start_date: string;
-  end_date: string;
-  active: string | boolean;
-  class_type_id?: string;
-  class_type_name?: string;
-}
-
 export interface AdminData {
   students: Student[];
   availability: Slot[];
   pendingRequests: BookingRequest[];
   requests: BookingRequest[];
   bookings: Booking[];
-  recurring: RecurringClass[];
   classTypes: ClassType[];
   quotas: StudentQuota[];
 }
